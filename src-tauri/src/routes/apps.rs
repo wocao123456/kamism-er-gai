@@ -41,41 +41,37 @@ pub fn apps_router(state: AppState) -> Router<AppState> {
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
 
+async fn get_admin_merchant_id(pool: &sqlx::PgPool) -> Uuid {
+    sqlx::query_as::<_, (Uuid,)>("SELECT id FROM merchants WHERE username='admin' LIMIT 1")
+        .fetch_optional(pool).await
+        .ok().flatten()
+        .map(|(id,)| id)
+        .unwrap_or_default()
+}
+
 async fn list_apps(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(q): Query<AppQuery>,
 ) -> Json<Value> {
-    let merchant_id = match Uuid::parse_str(&claims.sub) {
-        Ok(id) => id,
-        Err(_) => return Json(json!({"success": false, "message": "无效用户ID"})),
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        match Uuid::parse_str(&claims.sub) {
+            Ok(id) => id,
+            Err(_) => return Json(json!({"success": false, "message": "无效用户ID"})),
+        }
     };
     let page = q.page.unwrap_or(1).max(1);
     let page_size = q.page_size.unwrap_or(20).min(100);
     let offset = (page - 1) * page_size;
 
-    let (apps, total): (Vec<App>, i64) = if claims.role == "admin" {
-        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM apps")
+    let (apps, total): (Vec<App>, i64) = {
+        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM apps WHERE merchant_id = $1")
+            .bind(merchant_id)
             .fetch_one(&state.pool)
             .await
             .unwrap_or((0,));
-        let apps: Vec<App> = sqlx::query_as(
-            "SELECT * FROM apps ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-        )
-        .bind(page_size)
-        .bind(offset)
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
-        (apps, total.0)
-    } else {
-        let total: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM apps WHERE merchant_id = $1",
-        )
-        .bind(merchant_id)
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or((0,));
         let apps: Vec<App> = sqlx::query_as(
             "SELECT * FROM apps WHERE merchant_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
         )
@@ -102,9 +98,13 @@ async fn create_app(
     Extension(claims): Extension<Claims>,
     Json(body): Json<CreateAppRequest>,
 ) -> Json<Value> {
-    let merchant_id = match Uuid::parse_str(&claims.sub) {
-        Ok(id) => id,
-        Err(_) => return Json(json!({"success": false, "message": "无效用户ID"})),
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        match Uuid::parse_str(&claims.sub) {
+            Ok(id) => id,
+            Err(_) => return Json(json!({"success": false, "message": "无效用户ID"})),
+        }
     };
 
     if body.app_name.trim().is_empty() {
@@ -153,7 +153,11 @@ async fn get_app(
     Extension(claims): Extension<Claims>,
     Path(id): Path<Uuid>,
 ) -> Json<Value> {
-    let merchant_id = Uuid::parse_str(&claims.sub).unwrap_or_default();
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        Uuid::parse_str(&claims.sub).unwrap_or_default()
+    };
     let app: Option<App> = sqlx::query_as(
         "SELECT * FROM apps WHERE id = $1 AND (merchant_id = $2 OR $3 = 'admin')",
     )
@@ -175,7 +179,11 @@ async fn delete_app(
     Extension(claims): Extension<Claims>,
     Path(id): Path<Uuid>,
 ) -> Json<Value> {
-    let merchant_id = Uuid::parse_str(&claims.sub).unwrap_or_default();
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        Uuid::parse_str(&claims.sub).unwrap_or_default()
+    };
     let result = sqlx::query(
         "DELETE FROM apps WHERE id = $1 AND (merchant_id = $2 OR $3 = 'admin')",
     )
@@ -202,7 +210,11 @@ async fn update_app_status(
         Some(s) if s == "active" || s == "disabled" => s.to_string(),
         _ => return Json(json!({"success": false, "message": "无效状态"})),
     };
-    let merchant_id = Uuid::parse_str(&claims.sub).unwrap_or_default();
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        Uuid::parse_str(&claims.sub).unwrap_or_default()
+    };
 
     if claims.role == "admin" {
         // 管理员禁用/启用：同步更新 admin_disabled 标记
@@ -270,7 +282,11 @@ async fn batch_update_app_status(
         s if s == "active" || s == "disabled" => s.to_string(),
         _ => return Json(json!({"success": false, "message": "无效状态"})),
     };
-    let merchant_id = Uuid::parse_str(&claims.sub).unwrap_or_default();
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        Uuid::parse_str(&claims.sub).unwrap_or_default()
+    };
 
     let result = if claims.role == "admin" {
         let admin_disabled = status == "disabled";

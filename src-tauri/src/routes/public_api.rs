@@ -43,7 +43,13 @@ pub struct UnbindRequest {
     pub device_id: String,
 }
 
-/// 从请求头提取真实客户端 IP，优先读反向代理头
+#[derive(Deserialize)]
+pub struct HeartbeatRequest {
+    pub api_key: String,
+    pub device_id: String,
+    pub device_name: Option<String>,
+}
+
 fn extract_client_ip(headers: &HeaderMap, addr: &SocketAddr) -> String {
     if let Some(val) = headers.get("x-forwarded-for") {
         if let Ok(s) = val.to_str() {
@@ -64,22 +70,310 @@ fn extract_client_ip(headers: &HeaderMap, addr: &SocketAddr) -> String {
     addr.ip().to_string()
 }
 
+async fn get_risk_setting(pool: &sqlx::PgPool, key: &str, default: Value) -> Value {
+    let row: Option<(Value,)> = sqlx::query_as("SELECT value FROM risk_settings WHERE key = $1")
+        .bind(key)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None);
+    row.map(|(v,)| v).unwrap_or(default)
+}
+
+async fn write_alert(pool: &sqlx::PgPool, merchant_id: Uuid, alert_type: &str, device_hint: &str, ip: &str, detail: &str) {
+    let _ = sqlx::query(
+        "INSERT INTO activation_alerts (merchant_id, alert_type, device_hint, ip_address, detail) VALUES ($1, $2, $3, $4, $5)"
+    )
+    .bind(merchant_id)
+    .bind(alert_type)
+    .bind(device_hint)
+    .bind(ip)
+    .bind(detail)
+    .execute(pool)
+    .await;
+}
+
+async fn write_block(pool: &sqlx::PgPool, merchant_id: Uuid, tp: &str, hash_val: &str, limit: i64, device_id: &str) {
+    // 查询当前是否还在封禁期内
+    let now = Utc::now();
+    let is_currently_blocked: bool = if tp == "ip" {
+        sqlx::query_as::<_, (i64,)>(
+            "SELECT COUNT(*) FROM ip_blacklist WHERE ip=$1 AND blocked_until > NOW()"
+        )
+        .bind(hash_val)
+        .fetch_one(pool)
+        .await
+        .map(|(c,)| c > 0)
+        .unwrap_or(false)
+    } else {
+        sqlx::query_as::<_, (i64,)>(
+            "SELECT COUNT(*) FROM device_blacklist WHERE device_id_hash=$1 AND blocked_until > NOW()"
+        )
+        .bind(hash_val)
+        .fetch_one(pool)
+        .await
+        .map(|(c,)| c > 0)
+        .unwrap_or(false)
+    };
+
+    // 如果已在封禁期内，不更新时间，不增加计数
+    if is_currently_blocked {
+        return;
+    }
+
+    // 查询历史违规次数（从黑名单表统计，包括已过期的记录）
+    let violation_count: i64 = if tp == "ip" {
+        sqlx::query_as::<_, (i64,)>(
+            "SELECT COUNT(*) FROM ip_blacklist WHERE ip=$1"
+        )
+        .bind(hash_val)
+        .fetch_one(pool)
+        .await
+        .unwrap_or((0,))
+        .0
+    } else {
+        sqlx::query_as::<_, (i64,)>(
+            "SELECT COUNT(*) FROM device_blacklist WHERE device_id_hash=$1"
+        )
+        .bind(hash_val)
+        .fetch_one(pool)
+        .await
+        .unwrap_or((0,))
+        .0
+    };
+
+    // 阶梯时间：第1次10分钟，第2次20分钟，第3次40分钟... 封顶1440分钟
+    let minutes = match violation_count + 1 {
+        1 => 10,
+        2 => 20,
+        3 => 40,
+        4 => 60,
+        5 => 120,
+        6 => 240,
+        7 => 480,
+        _ => 1440,
+    };
+    let until = now + Duration::minutes(minutes as i64);
+
+    if tp == "ip" {
+        let _ = sqlx::query(
+            "INSERT INTO ip_blacklist (merchant_id, ip, reason, blocked_until)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (COALESCE(merchant_id::text, 'global'::text), ip)
+             DO UPDATE SET reason = $3, blocked_until = $4"
+        )
+        .bind(merchant_id)
+        .bind(hash_val)
+        .bind(format!("触发频率限制 {}次/分，第{}次违规", limit, violation_count + 1))
+        .bind(until)
+        .execute(pool)
+        .await;
+    } else {
+        let device_hint = if device_id.len() >= 4 {
+            format!("{}****", &device_id[..4])
+        } else {
+            "****".to_string()
+        };
+        let _ = sqlx::query(
+            "INSERT INTO device_blacklist (merchant_id, device_id_hash, device_hint, reason, blocked_until)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (COALESCE(merchant_id::text, 'global'::text), device_id_hash)
+             DO UPDATE SET reason = $4, blocked_until = $5"
+        )
+        .bind(merchant_id)
+        .bind(hash_val)
+        .bind(&device_hint)
+        .bind(format!("卡密超限 {}次/分，第{}次违规", limit, violation_count + 1))
+        .bind(until)
+        .execute(pool)
+        .await;
+    }
+}
+
+async fn check_blocked(state: &AppState, ip: &str, device_id: &str) -> Option<Json<Value>> {
+    let device_id_hash = EncryptedFieldsOps::generate_hash(device_id);
+    let now = Utc::now();
+
+    // 白名单跳过
+    let wip: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM whitelist WHERE type='ip' AND value=$1 LIMIT 1")
+        .bind(ip)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+    let wdev: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM whitelist WHERE type='device' AND value=$1 LIMIT 1")
+        .bind(&device_id_hash)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+    if wip.is_some() && wdev.is_some() {
+        return None;
+    }
+
+    if wip.is_none() {
+        let r: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
+            "SELECT reason, blocked_until FROM ip_blacklist WHERE ip=$1 AND (blocked_until IS NULL OR blocked_until > NOW()) LIMIT 1"
+        )
+        .bind(ip)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+        if let Some((reason, until)) = r {
+            let remaining = until.map(|b| (b - now).num_seconds().max(0)).unwrap_or(0);
+            return Some(Json(json!({
+                "success": false,
+                "message": "IP已被封禁",
+                "data": { "remaining_seconds": remaining, "reason": reason }
+            })));
+        }
+    }
+
+    if wdev.is_none() {
+        let r: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
+            "SELECT reason, blocked_until FROM device_blacklist WHERE device_id_hash=$1 AND (blocked_until IS NULL OR blocked_until > NOW()) LIMIT 1"
+        )
+        .bind(&device_id_hash)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+        if let Some((reason, until)) = r {
+            let remaining = until.map(|b| (b - now).num_seconds().max(0)).unwrap_or(0);
+            return Some(Json(json!({
+                "success": false,
+                "message": "设备已被封禁",
+                "data": { "remaining_seconds": remaining, "reason": reason }
+            })));
+        }
+    }
+    None
+}
+
+async fn check_card_rate(state: &AppState, merchant_id: Uuid, card_code: &str, ip: &str, device_id: &str) -> Option<Json<Value>> {
+    let settings = get_risk_setting(&state.pool, "rate_verify", json!({"card_warn": 3, "card_block": 5})).await;
+    let warn_limit = settings["card_warn"].as_i64().unwrap_or(3);
+    let block_limit = settings["card_block"].as_i64().unwrap_or(5);
+
+    let card_hash = EncryptedFieldsOps::generate_hash(card_code);
+    let key = format!("rate:card:{}", card_hash);
+    let mut r = state.redis.clone();
+    let count: i64 = redis::AsyncCommands::incr(&mut r, &key, 1).await.unwrap_or(0);
+    if count == 1 {
+        let _: () = redis::AsyncCommands::expire(&mut r, &key, 60).await.unwrap_or(());
+    }
+
+    if count >= warn_limit && count < block_limit {
+        write_alert(
+            &state.pool,
+            merchant_id,
+            "rate_warn",
+            card_code,
+            "system",
+            &format!("卡密1分钟{}次，接近限制{}", count, warn_limit),
+        ).await;
+    }
+
+    if count >= block_limit {
+        write_alert(
+            &state.pool,
+            merchant_id,
+            "card_rate_block",
+            card_code,
+            "system",
+            &format!("卡密1分钟{}次，超限{}次，已封禁", count, block_limit),
+        ).await;
+        write_block(&state.pool, merchant_id, "card", &card_hash, block_limit, device_id).await;
+
+        let ip_hash = EncryptedFieldsOps::generate_hash(ip);
+        write_block(&state.pool, merchant_id, "ip", ip, block_limit, device_id).await;
+
+        return Some(Json(json!({
+            "success": false,
+            "message": "请求超限已被封禁",
+            "data": { "count": count, "limit": block_limit, "remaining_seconds": 600 }
+        })));
+    }
+    None
+}
+
+async fn heartbeat(
+    State(state): State<AppState>,
+    Json(body): Json<HeartbeatRequest>,
+) -> Json<Value> {
+    let device_id_hash = EncryptedFieldsOps::generate_hash(&body.device_id);
+    let now = Utc::now();
+    let settings = get_risk_setting(&state.pool, "heartbeat", json!({"interval": 30, "timeout": 180})).await;
+    let timeout_secs = settings["timeout"].as_i64().unwrap_or(180);
+
+    let existing: Option<(i32, i32, String)> = sqlx::query_as(
+        "SELECT consecutive_failures, consecutive_successes, status FROM device_heartbeats WHERE device_id_hash = $1 LIMIT 1"
+    )
+    .bind(&device_id_hash)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
+    match existing {
+        None => {
+            let _ = sqlx::query(
+                "INSERT INTO device_heartbeats (device_id_hash, last_heartbeat, status, consecutive_successes) VALUES ($1, NOW(), 'online', 1)"
+            )
+            .bind(&device_id_hash)
+            .execute(&state.pool)
+            .await;
+        }
+        Some((_, successes, status)) => {
+            if status == "blocked" {
+                let blocked: Option<(chrono::DateTime<chrono::Utc>,)> = sqlx::query_as(
+                    "SELECT last_blocked_until FROM device_heartbeats WHERE device_id_hash = $1"
+                )
+                .bind(&device_id_hash)
+                .fetch_optional(&state.pool)
+                .await
+                .unwrap_or(None);
+
+                if let Some((until,)) = blocked {
+                    if now > until {
+                        let _ = sqlx::query(
+                            "UPDATE device_heartbeats SET status='online', consecutive_failures=0, consecutive_successes=1, last_heartbeat=NOW() WHERE device_id_hash=$1"
+                        )
+                        .bind(&device_id_hash)
+                        .execute(&state.pool)
+                        .await;
+                        let _ = sqlx::query("DELETE FROM device_blacklist WHERE device_id_hash=$1")
+                            .bind(&device_id_hash)
+                            .execute(&state.pool)
+                            .await;
+                    } else {
+                        return Json(json!({
+                            "success": false,
+                            "message": "设备已被封禁",
+                            "data": { "remaining_seconds": (until - now).num_seconds() }
+                        }));
+                    }
+                }
+            }
+            let _ = sqlx::query(
+                "UPDATE device_heartbeats SET last_heartbeat=NOW(), consecutive_successes=consecutive_successes+1, consecutive_failures=0, status='online' WHERE device_id_hash=$1"
+            )
+            .bind(&device_id_hash)
+            .execute(&state.pool)
+            .await;
+        }
+    }
+    Json(json!({"success": true, "message": "心跳已记录", "status": "online"}))
+}
+
 pub fn public_api_router(state: AppState) -> Router<AppState> {
     use crate::middleware::rate_limit::{api_rate_limit, activate_rate_limit};
     use axum::middleware;
     Router::new()
-        // /v1/activate 叠加激活专用限流（更严格，20次/分钟）
-        .route("/v1/activate",
-            post(activate).route_layer(
-                middleware::from_fn_with_state(state.clone(), activate_rate_limit)
-            )
-        )
+        .route("/v1/activate", post(activate).route_layer(
+            middleware::from_fn_with_state(state.clone(), activate_rate_limit)
+        ))
         .route("/v1/verify", post(verify))
         .route("/v1/unbind", post(unbind))
+        .route("/v1/heartbeat", post(heartbeat))
         .route_layer(middleware::from_fn_with_state(state, api_rate_limit))
 }
 
-/// 激活卡密
 async fn activate(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -90,7 +384,8 @@ async fn activate(
         return Json(json!({"success": false, "message": "设备ID不能为空"}));
     }
 
-    // 查询所有商户并使用哈希索引查询 API Key
+    let ip = extract_client_ip(&headers, &addr);
+
     let api_key_hash = EncryptedFieldsOps::generate_hash(&body.api_key);
     let merchant: Option<(Uuid,)> =
         sqlx::query_as("SELECT id FROM merchants WHERE api_key_hash = $1 AND status = 'active'")
@@ -98,13 +393,18 @@ async fn activate(
             .fetch_optional(&state.pool)
             .await
             .unwrap_or(None);
-
     let merchant_id = match merchant {
         Some((id,)) => id,
         None => return Json(json!({"success": false, "message": "无效的 API Key"})),
     };
 
-    // 验证 app_id 归属于该商户且处于 active 状态
+    if let Some(blocked) = check_blocked(&state, &ip, &body.device_id).await {
+        return blocked;
+    }
+    if let Some(rate) = check_card_rate(&state, merchant_id, &body.card_code, &ip, &body.device_id).await {
+        return rate;
+    }
+
     let app_valid: Option<(Uuid,)> = sqlx::query_as(
         "SELECT id FROM apps WHERE id = $1 AND merchant_id = $2 AND status = 'active'",
     )
@@ -113,52 +413,14 @@ async fn activate(
     .fetch_optional(&state.pool)
     .await
     .unwrap_or(None);
-
     if app_valid.is_none() {
         return Json(json!({"success": false, "message": "应用不存在或已禁用"}));
     }
 
-    let ip = extract_client_ip(&headers, &addr);
-
-    // ── IP 黑名单检查（全局 + 商户级）──────────────────────────────────────
-    let ip_blocked: Option<(i64,)> = sqlx::query_as(
-        "SELECT 1 FROM ip_blacklist
-         WHERE ip = $1 AND (merchant_id IS NULL OR merchant_id = $2)
-         LIMIT 1"
-    )
-    .bind(&ip)
-    .bind(merchant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
-
-    if ip_blocked.is_some() {
-        return Json(json!({"success": false, "message": "当前 IP 已被限制激活"}));
-    }
-
-    // ── 设备黑名单检查（全局 + 商户级）────────────────────────────────────
     let device_id_hash = EncryptedFieldsOps::generate_hash(&body.device_id);
-    let device_blocked: Option<(i64,)> = sqlx::query_as(
-        "SELECT 1 FROM device_blacklist
-         WHERE device_id_hash = $1 AND (merchant_id IS NULL OR merchant_id = $2)
-         LIMIT 1"
-    )
-    .bind(&device_id_hash)
-    .bind(merchant_id)
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
 
-    if device_blocked.is_some() {
-        return Json(json!({"success": false, "message": "当前设备已被限制激活"}));
-    }
-
-    // ── 异常检测：同一设备激活多张卡 ───────────────────────────────────────
-    // 同一 device_id_hash 在该商户下绑定了超过 3 张不同卡密，视为异常
     let device_card_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(DISTINCT a.card_id) FROM activations a
-         JOIN cards c ON c.id = a.card_id
-         WHERE a.device_id_hash = $1 AND c.merchant_id = $2"
+        "SELECT COUNT(DISTINCT a.card_id) FROM activations a JOIN cards c ON c.id = a.card_id WHERE a.device_id_hash = $1 AND c.merchant_id = $2"
     )
     .bind(&device_id_hash)
     .bind(merchant_id)
@@ -167,59 +429,49 @@ async fn activate(
     .unwrap_or((0,));
 
     if device_card_count.0 >= 3 {
-        let device_hint = if body.device_id.len() >= 4 {
+        let hint = if body.device_id.len() >= 4 {
             format!("{}****", &body.device_id[..4])
         } else {
             "****".to_string()
         };
         let pool_alert = state.pool.clone();
         let mid = merchant_id;
-        let hint = device_hint.clone();
-        let ip_clone = ip.clone();
+        let h = hint.clone();
+        let ipc = ip.clone();
         tokio::spawn(async move {
             let _ = sqlx::query(
-                "INSERT INTO activation_alerts
-                 (merchant_id, alert_type, device_hint, ip_address, detail)
-                 VALUES ($1, 'device_multi_card', $2, $3, $4)"
+                "INSERT INTO activation_alerts (merchant_id, alert_type, device_hint, ip_address, detail) VALUES ($1, 'device_multi_card', $2, $3, $4)"
             )
             .bind(mid)
-            .bind(&hint)
-            .bind(&ip_clone)
-            .bind(format!("设备 {} 已激活 {} 张卡密", hint, device_card_count.0 + 1))
+            .bind(&h)
+            .bind(&ipc)
+            .bind(format!("设备 {} 已激活 {} 张卡密", h, device_card_count.0 + 1))
             .execute(&pool_alert)
             .await;
         });
     }
 
-    // ── 异常检测：同 IP 短时间大量激活（超过阈值写告警）──────────────────
-    // Redis 限流已拦截超频请求，此处记录接近阈值的行为（15次/分钟）
     {
         let mut redis = state.redis.clone();
         let rl_key = format!("rl:activate:{}", ip);
-        let count: i64 = redis::AsyncCommands::get(&mut redis, &rl_key)
-            .await
-            .unwrap_or(0i64);
+        let count: i64 = redis::AsyncCommands::get(&mut redis, &rl_key).await.unwrap_or(0i64);
         if count >= 15 {
             let pool_alert = state.pool.clone();
             let mid = merchant_id;
-            let ip_clone = ip.clone();
+            let ipc = ip.clone();
             tokio::spawn(async move {
                 let _ = sqlx::query(
-                    "INSERT INTO activation_alerts
-                     (merchant_id, alert_type, ip_address, detail)
-                     VALUES ($1, 'ip_abuse', $2, $3)
-                     ON CONFLICT DO NOTHING"
+                    "INSERT INTO activation_alerts (merchant_id, alert_type, ip_address, detail) VALUES ($1, 'ip_abuse', $2, $3) ON CONFLICT DO NOTHING"
                 )
                 .bind(mid)
-                .bind(&ip_clone)
-                .bind(format!("IP {} 本分钟已激活 {} 次", ip_clone, count))
+                .bind(&ipc)
+                .bind(format!("IP {} 本分钟已激活 {} 次", ipc, count))
                 .execute(&pool_alert)
                 .await;
             });
         }
     }
 
-    // 查询该商户指定应用下的卡密（使用哈希索引查询）
     let code_hash = EncryptedFieldsOps::generate_hash(&body.card_code);
     let card: Option<Card> = sqlx::query_as(
         "SELECT * FROM cards WHERE code_hash = $1 AND merchant_id = $2 AND app_id = $3",
@@ -252,8 +504,7 @@ async fn activate(
         }
     }
 
-    // 检查该设备是否已绑定此卡密（使用 device_id_hash 索引，O(1) 查询，无需全量解密）
-    let existing_activation: Option<Activation> = sqlx::query_as(
+    let existing: Option<Activation> = sqlx::query_as(
         "SELECT * FROM activations WHERE card_id = $1 AND device_id_hash = $2",
     )
     .bind(card.id)
@@ -262,34 +513,25 @@ async fn activate(
     .await
     .unwrap_or(None);
 
-    if let Some(existing) = existing_activation {
-        let _ = sqlx::query(
-            "UPDATE activations SET last_verified_at = NOW() WHERE id = $1",
-        )
-        .bind(existing.id)
-        .execute(&state.pool)
-        .await;
-
+    if let Some(ex) = existing {
+        let _ = sqlx::query("UPDATE activations SET last_verified_at = NOW() WHERE id = $1")
+            .bind(ex.id)
+            .execute(&state.pool)
+            .await;
         let expires_at = card.expires_at;
         let remaining_days = expires_at.map(|e| (e - Utc::now()).num_days().max(0));
         return Json(json!({
             "success": true,
             "message": "卡密已激活（设备已绑定）",
-            "data": {
-                "expires_at": expires_at,
-                "remaining_days": remaining_days,
-                "max_devices": card.max_devices
-            }
+            "data": { "expires_at": expires_at, "remaining_days": remaining_days, "max_devices": card.max_devices }
         }));
     }
 
-    // 检查设备数量上限
-    let device_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM activations WHERE card_id = $1")
-            .bind(card.id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or((0,));
+    let device_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM activations WHERE card_id = $1")
+        .bind(card.id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or((0,));
 
     if device_count.0 >= card.max_devices as i64 {
         return Json(json!({
@@ -306,8 +548,6 @@ async fn activate(
     };
 
     let activation_id = Uuid::new_v4();
-
-    // 加密设备 ID（device_id_hash 已在上方定义）
     let encrypted_device_id = match EncryptedFieldsOps::encrypt_device_id(
         &state.pool,
         &state.encryptor,
@@ -344,7 +584,6 @@ async fn activate(
 
     let remaining_days = expires_at.map(|e| (e - Utc::now()).num_days().max(0));
 
-    // 异步触发 Webhook（activate 事件）
     let pool_clone = state.pool.clone();
     let app_id_clone = card.app_id;
     let webhook_payload = serde_json::json!({
@@ -358,7 +597,6 @@ async fn activate(
         crate::routes::webhooks::fire_webhook(&pool_clone, app_id_clone, "activate", webhook_payload).await;
     });
 
-    // 异步写分润记录（代理体系）
     let pool_commission = state.pool.clone();
     let mid_commission = merchant_id;
     let card_id_commission = card.id;
@@ -383,95 +621,19 @@ async fn activate(
     }))
 }
 
-/// 验证卡密
-/// 性能优化：使用 Redis 缓存验证结果（TTL=60s），命中缓存时完全跳过数据库查询。
-/// 异步后台更新 last_verified_at，避免写操作阻塞响应。
 async fn verify(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(body): Json<VerifyRequest>,
 ) -> Json<Value> {
-    // ── Redis 缓存 key：api_key + app_id + card_code + device_id 的组合哈希 ──
-    let api_key_hash   = EncryptedFieldsOps::generate_hash(&body.api_key);
-    let code_hash      = EncryptedFieldsOps::generate_hash(&body.card_code);
+    let api_key_hash = EncryptedFieldsOps::generate_hash(&body.api_key);
+    let code_hash = EncryptedFieldsOps::generate_hash(&body.card_code);
     let device_id_hash = EncryptedFieldsOps::generate_hash(&body.device_id);
-    let cache_key = format!(
-        "verify:{}:{}:{}:{}",
-        &api_key_hash[..16],
-        body.app_id,
-        &code_hash[..16],
-        &device_id_hash[..16]
-    );
 
-    let mut redis = state.redis.clone();
+    let client_ip = extract_client_ip(&headers, &addr);
 
-    // ── 缓存命中：先实时校验卡密状态，再返回缓存结果 ──
-    // 注意：缓存只缓存「当时验证成功」的结果，但卡密可能在缓存期间被禁用/过期，
-    // 因此命中缓存时必须额外做一次轻量 DB 状态查询（走主键索引，开销极小）。
-    if let Ok(Some(cached)) = redis.get::<_, Option<String>>(&cache_key).await {
-        if let Ok(val) = serde_json::from_str::<Value>(&cached) {
-            // 取缓存中的 card_id，查实时状态
-            let cached_card_id = val.pointer("/data/card_id")
-                .and_then(|v| v.as_str())
-                .and_then(|s| uuid::Uuid::parse_str(s).ok());
-
-            if let Some(cid) = cached_card_id {
-                let live_status: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> =
-                    sqlx::query_as("SELECT status, expires_at FROM cards WHERE id = $1")
-                        .bind(cid)
-                        .fetch_optional(&state.pool)
-                        .await
-                        .unwrap_or(None);
-
-                match live_status {
-                    None => {
-                        // 卡密已被删除，失效缓存
-                        let _: redis::RedisResult<()> = redis.del(&cache_key).await;
-                        return Json(json!({"success": false, "valid": false, "message": "卡密不存在"}));
-                    }
-                    Some((status, expires_at)) => {
-                        // 检查禁用
-                        if status == "disabled" {
-                            let _: redis::RedisResult<()> = redis.del(&cache_key).await;
-                            return Json(json!({"success": false, "valid": false, "message": "卡密已被禁用"}));
-                        }
-                        // 检查过期
-                        if let Some(exp) = expires_at {
-                            if chrono::Utc::now() > exp {
-                                let _: redis::RedisResult<()> = redis.del(&cache_key).await;
-                                return Json(json!({"success": false, "valid": false, "message": "卡密已过期"}));
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 状态正常，使用缓存结果并异步更新 last_verified_at
-            let pool_bg   = state.pool.clone();
-            let val_clone = val.clone();
-            let mut redis_bg = state.redis.clone();
-            let cache_key_bg = cache_key.clone();
-            tokio::spawn(async move {
-                if val_clone.get("valid").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    if let Some(act_id) = val_clone.pointer("/data/activation_id")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| uuid::Uuid::parse_str(s).ok())
-                    {
-                        let _ = sqlx::query(
-                            "UPDATE activations SET last_verified_at = NOW() WHERE id = $1",
-                        )
-                        .bind(act_id)
-                        .execute(&pool_bg)
-                        .await;
-                    }
-                    let _: redis::RedisResult<()> =
-                        redis_bg.expire(cache_key_bg.as_str(), 60_i64).await;
-                }
-            });
-            return Json(val);
-        }
-    }
-
-    // ── 缓存未命中：走完整数据库查询逻辑 ──
+    // 获取 merchant_id 提前，供风控使用
     let merchant: Option<(Uuid,)> =
         sqlx::query_as("SELECT id FROM merchants WHERE api_key_hash = $1 AND status = 'active'")
             .bind(&api_key_hash)
@@ -482,15 +644,63 @@ async fn verify(
     let merchant_id = match merchant {
         Some((id,)) => id,
         None => {
-            // 无效 key 也短暂缓存（5s），防止暴力枚举打穿数据库
-            let fail = json!({"success": false, "valid": false, "message": "无效的 API Key"});
-            let _: redis::RedisResult<()> = redis::AsyncCommands::set_ex(
-                &mut redis, &cache_key, fail.to_string(), 5_u64,
-            ).await;
-            return Json(fail);
+            return Json(json!({"success": false, "valid": false, "message": "无效的 API Key"}));
         }
     };
 
+    if let Some(rate) = check_card_rate(&state, merchant_id, &body.card_code, &client_ip, &body.device_id).await {
+        return rate;
+    }
+
+    let cache_key = format!(
+        "verify:{}:{}:{}:{}",
+        &api_key_hash[..16], body.app_id, &code_hash[..16], &device_id_hash[..16]
+    );
+    let mut redis = state.redis.clone();
+
+    if let Ok(Some(cached)) = redis.get::<_, Option<String>>(&cache_key).await {
+        if let Ok(val) = serde_json::from_str::<Value>(&cached) {
+            let cached_card_id = val.pointer("/data/card_id")
+                .and_then(|v| v.as_str())
+                .and_then(|s| uuid::Uuid::parse_str(s).ok());
+
+            if let Some(cid) = cached_card_id {
+                let live: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> =
+                    sqlx::query_as("SELECT status, expires_at FROM cards WHERE id = $1")
+                        .bind(cid)
+                        .fetch_optional(&state.pool)
+                        .await
+                        .unwrap_or(None);
+                match live {
+                    None => {
+                        let _: redis::RedisResult<()> = redis.del(&cache_key).await;
+                        return Json(json!({"success": false, "valid": false, "message": "卡密不存在"}));
+                    }
+                    Some((status, expires_at)) => {
+                        if status == "disabled" {
+                            let _: redis::RedisResult<()> = redis.del(&cache_key).await;
+                            return Json(json!({"success": false, "valid": false, "message": "卡密已被禁用"}));
+                        }
+                        if let Some(exp) = expires_at {
+                            if chrono::Utc::now() > exp {
+                                let _: redis::RedisResult<()> = redis.del(&cache_key).await;
+                                return Json(json!({"success": false, "valid": false, "message": "卡密已过期"}));
+                            }
+                        }
+                    }
+                }
+            }
+
+            let mut redis_bg = state.redis.clone();
+            let cache_key_bg = cache_key.clone();
+            tokio::spawn(async move {
+                let _: redis::RedisResult<()> = redis_bg.expire(cache_key_bg.as_str(), 60).await;
+            });
+            return Json(val);
+        }
+    }
+
+    // merchant_id 已验证，继续
     let app_valid: Option<(Uuid,)> = sqlx::query_as(
         "SELECT id FROM apps WHERE id = $1 AND merchant_id = $2 AND status = 'active'",
     )
@@ -519,7 +729,6 @@ async fn verify(
         None => return Json(json!({"success": false, "message": "卡密不存在"})),
     };
 
-    // 检查时间过期
     if let Some(exp) = card.expires_at {
         if Utc::now() > exp {
             let _ = sqlx::query("UPDATE cards SET status = 'expired' WHERE id = $1")
@@ -532,8 +741,8 @@ async fn verify(
 
     match card.status.as_str() {
         "disabled" => return Json(json!({"success": false, "valid": false, "message": "卡密已被禁用"})),
-        "expired"  => return Json(json!({"success": false, "valid": false, "message": "卡密已过期"})),
-        "unused"   => return Json(json!({"success": false, "valid": false, "message": "卡密尚未激活"})),
+        "expired" => return Json(json!({"success": false, "valid": false, "message": "卡密已过期"})),
+        "unused" => return Json(json!({"success": false, "valid": false, "message": "卡密尚未激活"})),
         _ => {}
     }
 
@@ -556,25 +765,21 @@ async fn verify(
 
     let activation = activation.unwrap();
 
-    // 异步更新最后验证时间（不阻塞响应）
     let pool_bg = state.pool.clone();
-    let act_id  = activation.id;
+    let act_id = activation.id;
     tokio::spawn(async move {
-        let _ = sqlx::query(
-            "UPDATE activations SET last_verified_at = NOW() WHERE id = $1",
-        )
-        .bind(act_id)
-        .execute(&pool_bg)
-        .await;
+        let _ = sqlx::query("UPDATE activations SET last_verified_at = NOW() WHERE id = $1")
+            .bind(act_id)
+            .execute(&pool_bg)
+            .await;
     });
 
     let remaining_days = card.expires_at.map(|e| (e - Utc::now()).num_days().max(0));
-    let device_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM activations WHERE card_id = $1")
-            .bind(card.id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or((0,));
+    let device_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM activations WHERE card_id = $1")
+        .bind(card.id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or((0,));
 
     let result = json!({
         "success": true,
@@ -590,12 +795,10 @@ async fn verify(
         }
     });
 
-    // 写入缓存：60s TTL，激活/禁用/解绑事件时需主动失效（见 activate/unbind/disable 逻辑）
     let _: redis::RedisResult<()> = redis::AsyncCommands::set_ex(
         &mut redis, &cache_key, result.to_string(), 60_u64,
     ).await;
 
-    // 异步触发 Webhook（verify 事件）
     let pool_clone = state.pool.clone();
     let app_id_clone = card.app_id;
     let webhook_payload = serde_json::json!({
@@ -611,12 +814,29 @@ async fn verify(
     Json(result)
 }
 
-/// 解绑设备
 async fn unbind(
     State(state): State<AppState>,
     Json(body): Json<UnbindRequest>,
 ) -> Json<Value> {
-    // 查询所有商户并使用哈希索引查询 API Key
+    // 设备封禁检查
+    let device_id_hash = EncryptedFieldsOps::generate_hash(&body.device_id);
+    let dev_blocked: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
+        "SELECT reason, blocked_until FROM device_blacklist WHERE device_id_hash=$1 AND (blocked_until IS NULL OR blocked_until > NOW()) LIMIT 1"
+    )
+    .bind(&device_id_hash)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
+    if let Some((reason, until)) = dev_blocked {
+        let remaining = until.map(|b| (b - Utc::now()).num_seconds().max(0)).unwrap_or(0);
+        return Json(json!({
+            "success": false,
+            "message": "设备已被封禁，无法解绑",
+            "data": { "remaining_seconds": remaining, "reason": reason }
+        }));
+    }
+
     let api_key_hash = EncryptedFieldsOps::generate_hash(&body.api_key);
     let merchant: Option<(Uuid,)> =
         sqlx::query_as("SELECT id FROM merchants WHERE api_key_hash = $1 AND status = 'active'")
@@ -630,7 +850,6 @@ async fn unbind(
         None => return Json(json!({"success": false, "message": "无效的 API Key"})),
     };
 
-    // 验证 app_id 归属于该商户且处于 active 状态
     let app_valid: Option<(Uuid,)> = sqlx::query_as(
         "SELECT id FROM apps WHERE id = $1 AND merchant_id = $2 AND status = 'active'",
     )
@@ -644,7 +863,6 @@ async fn unbind(
         return Json(json!({"success": false, "message": "应用不存在或已禁用"}));
     }
 
-    // 查询该商户指定应用下的卡密（使用哈希索引查询）
     let code_hash = EncryptedFieldsOps::generate_hash(&body.card_code);
     let card: Option<Card> = sqlx::query_as(
         "SELECT * FROM cards WHERE code_hash = $1 AND merchant_id = $2 AND app_id = $3",
@@ -660,11 +878,8 @@ async fn unbind(
         Some(c) => c,
         None => return Json(json!({"success": false, "message": "卡密不存在"})),
     };
-
     let card_id = card.id;
 
-    // 查询该卡密的激活记录（使用哈希索引查询）
-    let device_id_hash = EncryptedFieldsOps::generate_hash(&body.device_id);
     let activation: Option<(Uuid,)> = sqlx::query_as(
         "SELECT id FROM activations WHERE card_id = $1 AND device_id_hash = $2",
     )
@@ -679,16 +894,13 @@ async fn unbind(
         None => return Json(json!({"success": false, "message": "设备未绑定该卡密"})),
     };
 
-    let result = sqlx::query(
-        "DELETE FROM activations WHERE id = $1",
-    )
-    .bind(activation_id)
-    .execute(&state.pool)
-    .await;
+    let result = sqlx::query("DELETE FROM activations WHERE id = $1")
+        .bind(activation_id)
+        .execute(&state.pool)
+        .await;
 
     match result {
         Ok(r) if r.rows_affected() > 0 => {
-            // 若无剩余设备，恢复卡密状态
             let remaining: (i64,) =
                 sqlx::query_as("SELECT COUNT(*) FROM activations WHERE card_id = $1")
                     .bind(card_id)

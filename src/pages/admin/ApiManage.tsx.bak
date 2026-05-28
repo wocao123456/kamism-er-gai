@@ -1,0 +1,201 @@
+import { useState, useEffect, useCallback, Fragment } from 'react';
+import { Plus, Settings, Trash2, RefreshCw, TestTube, Lock, Unlock, ChevronDown, ChevronRight, Clock, Key, Search, X } from 'lucide-react';
+const API_BASE = window.location.origin;
+
+// 鉴权密钥：总共显示30位，前10位明文 + 10个* + 后10位明文
+const maskMiddle = (s: string) => {
+  if (!s || s.length < 35) return s;
+  const head = s.slice(0, 10);
+  const tail = s.slice(-10);
+  return head + '*'.repeat(15) + tail;
+};
+
+export default function ApiManage() {
+  const [keys, setKeys] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [showTest, setShowTest] = useState(false);
+  const [form, setForm] = useState<any>(null);
+  const [testResult, setTestResult] = useState<any>(null);
+  const [selectedKey, setSelectedKey] = useState<any>(null);
+  const [testTab, setTestTab] = useState<'sign' | 'crypto'>('sign');
+  const [testParams, setTestParams] = useState('');
+  const [cryptoText, setCryptoText] = useState('');
+  const [addTab, setAddTab] = useState<'main' | 'crypto'>('main');
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ sign: false, params: false, response: false, encrypt: false, decrypt: false });
+  const toggleSection = (key: string) => setExpandedSections(prev => ({ ...prev, [key]: !prev[key] }));
+  const [authKey, setAuthKey] = useState('');
+  const [authStatus, setAuthStatus] = useState('idle');
+  const [authExpiresAt, setAuthExpiresAt] = useState(0);
+  const [recentLogs, setRecentLogs] = useState<any[]>([]);
+  const [stats, setStats] = useState({ today_success: 0, today_failed: 0, total: 0 });
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
+  const [logPage, setLogPage] = useState(1);
+  const LOG_PAGE_SIZE = 5;
+  const [searchCardOpen, setSearchCardOpen] = useState(false);
+  const [searchCardValue, setSearchCardValue] = useState('');
+
+  const fetchAuthKey = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const r = await fetch(`${API_BASE}/api/activations?page=1&page_size=1`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json(); const cc = d?.data?.[0]?.card_code;
+      if (!cc) { setAuthKey('无激活卡密'); return; }
+      const r2 = await fetch(`${API_BASE}/api/ts/auth/gen-key`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card_key: cc }) });
+      const d2 = await r2.json();
+      if (d2.data) { setAuthKey(d2.data.auth_key); setAuthStatus('idle'); setAuthExpiresAt(Date.now()+300000); localStorage.setItem('cached_auth_key', d2.data.auth_key); localStorage.setItem('cached_auth_expiry', String(Date.now()+300000)); }
+    } catch (e) {}
+  }, []);
+
+  const fetchKeys = useCallback(async () => { setLoading(true); try { const r = await fetch(`${API_BASE}/api/keys`); const d = await r.json(); setKeys(d.data || []); } catch (e) {} setLoading(false); }, []);
+
+  const fetchRecentLogs = useCallback(async (cardFilter?: string) => {
+    try {
+      let url = `${API_BASE}/api/ts/logs?page=1&page_size=200`;
+      const lR = await fetch(url);
+      const lD = await lR.json();
+      let merged = lD.data?.data || [];
+      if (cardFilter) {
+        merged = merged.filter((l: any) => (l.card_key || '').toLowerCase().includes(cardFilter.toLowerCase()));
+      }
+      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      const todayMerged = merged.filter((l: any) => new Date(l.created_at) >= todayStart);
+      const successMerged = todayMerged.filter((l: any) => l.status === 'success').length;
+      const failMerged = todayMerged.filter((l: any) => l.status !== 'success').length;
+      setStats({ today_success: successMerged, today_failed: failMerged, total: todayMerged.length });
+      setRecentLogs(merged);
+      setLogPage(1);
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => { fetchKeys(); fetchRecentLogs(); const c = localStorage.getItem('cached_auth_key'); const e = parseInt(localStorage.getItem('cached_auth_expiry')||'0'); if (c && e > Date.now()) { setAuthKey(c); setAuthExpiresAt(e); setAuthStatus('idle'); } else { fetchAuthKey(); } const t = setInterval(() => fetchRecentLogs(), 30000); return () => clearInterval(t); }, []);
+  useEffect(() => { const t = setInterval(() => { if (authExpiresAt > 0 && Date.now() > authExpiresAt && authStatus !== 'used') { setAuthStatus('expired'); fetchAuthKey(); } }, 10000); return () => clearInterval(t); }, [authExpiresAt, authStatus]);
+
+  const deleteKey = async (id: string) => { if (!confirm('确定删除？')) return; await fetch(`${API_BASE}/api/keys/${id}`, { method: 'DELETE' }); fetchKeys(); };
+  const toggleKey = async (id: string) => { await fetch(`${API_BASE}/api/keys/${id}/toggle`, { method: 'POST' }); fetchKeys(); };
+  const openEdit = (k: any) => { setForm({ ...k, encrypt_code: k.encrypt_code||'', decrypt_code: k.decrypt_code||'', sign_code: k.sign_code||'', params_template: k.params_template||'', response_template: k.response_template||'', join_template: k.join_template||'' }); setShowAdd(true); };
+  const openAdd = () => { setForm({ name: '', encrypt_code: '', decrypt_code: '', sign_code: '', join_template: '', status: 'active', params_template: '', response_template: '' }); setShowAdd(true); };
+  const saveKey = async () => { if (!form) return; const m = form.id ? 'PUT' : 'POST'; const u = form.id ? `${API_BASE}/api/keys/${form.id}` : `${API_BASE}/api/keys`; const p = { name: form.name||'', encrypt_code: form.encrypt_code||'', decrypt_code: form.decrypt_code||'', sign_code: form.sign_code||'', join_template: form.join_template||'', status: form.status||'active', params_template: form.params_template||'', response_template: form.response_template||'' }; await fetch(u, { method: m, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) }); setShowAdd(false); fetchKeys(); };
+  const testApi = async (endpoint: string, body: any) => { try { const r = await fetch(`${API_BASE}${endpoint}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const d = await r.json(); setTestResult(d); setAuthStatus(d.code === 200 ? 'used' : 'failed'); fetchRecentLogs(); fetchAuthKey(); } catch (e) { setTestResult({ code: 500, msg: '请求失败' }); } };
+  const codeAreaStyle: React.CSSProperties = { width: '100%', minHeight: 110, padding: 12, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12, fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' };
+  const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13, boxSizing: 'border-box' };
+
+  const SectionHeader = ({ title, sectionKey, icon }: { title: string; sectionKey: string; icon?: string }) => (
+    <div onClick={() => toggleSection(sectionKey)} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '10px 14px', background: 'var(--bg)', borderRadius: 10, marginBottom: expandedSections[sectionKey] ? 8 : 0, border: '1px solid var(--border)', transition: 'all 0.2s' }}>
+      {expandedSections[sectionKey] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+      <span style={{ fontWeight: 600, fontSize: 13 }}>{icon} {title}</span>
+    </div>
+  );
+
+  const identifyStep = (res: string): { icon: string; label: string } => {
+    if (!res) return { icon: '📦', label: '未识别' };
+    if (res.length > 500 && /^[A-Za-z0-9+/=]+$/.test(res)) return { icon: '📋', label: '原始密文' };
+    try { const obj = JSON.parse(res); if (obj.dispatch_action) return { icon: '🔓', label: '解密' }; if ('score' in obj || 'code' in obj || 'data' in obj || 'msg' in obj) return { icon: '✅', label: '响应' }; return { icon: '📦', label: '未识别(JSON)' }; } catch {}
+    if (res.length === 64 && /^[0-9a-fA-F]+$/.test(res)) return { icon: '✍️', label: '签名' };
+    if (res.length >= 100 && res.length <= 500 && /^[A-Za-z0-9+/=]+$/.test(res)) return { icon: '🔐', label: '加密' };
+    return { icon: '📦', label: '未识别' };
+  };
+
+  const getStepLabel = (sub: any) => {
+    const time = new Date(sub.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    if (sub.status !== 'success') return `❌ 失败 (${time})`;
+    const { icon, label } = identifyStep(sub.sign_result || '');
+    return `${icon} ${label} (${time})`;
+  };
+
+  const SubRow = ({ sub, index, logId }: { sub: any; index: number; logId: string }) => {
+    const sk = `${logId}-sub-${index}`;
+    const open = expandedSubId === sk;
+    const toggle = () => setExpandedSubId(open ? null : sk);
+    const params = sub.params;
+    const hasParams = params && (typeof params === 'object' ? Object.keys(params).length > 0 : String(params).length > 0);
+    return (
+      <div style={{ padding: '2px 16px' }}>
+        <div onClick={toggle} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '4px 0', fontSize: 12, color: 'var(--text-muted)', userSelect: 'none' }}>
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <span>{getStepLabel(sub)}</span>
+        </div>
+        {open && (
+          <div style={{ marginLeft: 20, marginTop: 4 }}>
+            {hasParams && (<div style={{ marginBottom: 8 }}><div style={{ fontSize: 11, fontWeight: 600, marginBottom: 2 }}>📋 请求参数</div><pre style={{ margin: 0, padding: '6px 10px', fontSize: 11, fontFamily: 'monospace', color: 'var(--text)', background: 'var(--bg)', borderRadius: 6, maxHeight: 150, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{typeof params === 'object' ? JSON.stringify(params, null, 2) : String(params)}</pre></div>)}
+            <div><div style={{ fontSize: 11, fontWeight: 600, marginBottom: 2 }}>{sub.status === 'success' ? '✅ 操作结果' : '❌ 失败原因'}</div><pre style={{ margin: 0, padding: '6px 10px', fontSize: 11, fontFamily: 'monospace', color: sub.status === 'success' ? 'var(--accent)' : '#f87171', background: 'var(--bg)', borderRadius: 6, maxHeight: 200, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{sub.status === 'success' ? (sub.sign_result || '—') : (sub.fail_reason || '—')}</pre></div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const pagedLogs = recentLogs.slice((logPage-1)*LOG_PAGE_SIZE, logPage*LOG_PAGE_SIZE);
+  const totalLogPages = Math.ceil(recentLogs.length / LOG_PAGE_SIZE);
+
+  const handleSearchSubmit = () => {
+    setSearchCardOpen(false);
+    fetchRecentLogs(searchCardValue);
+  };
+
+  return (
+    <div className="fade-in" style={{ maxWidth: 960, margin: '0 auto' }}>
+      <div className="page-header"><div><h1 className="page-title">API 管理</h1><p className="page-subtitle">管理密钥 · 签名 · 加密配置</p></div><div style={{ display: 'flex', gap: 8 }}><button className="btn btn-ghost btn-sm" onClick={() => { fetchKeys(); fetchRecentLogs(); }}><RefreshCw size={14} /> 刷新</button><button className="btn btn-ghost btn-sm" onClick={() => setShowTest(true)}><TestTube size={14} /> 在线测试</button><button className="btn btn-primary btn-sm" onClick={openAdd}><Plus size={15} /> 添加密钥</button></div></div>
+
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: '14px 20px', marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>鉴权密钥</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: authStatus === 'used' ? 'rgba(52,211,153,0.12)' : authStatus === 'expired' ? 'rgba(248,113,113,0.12)' : 'rgba(124,106,247,0.1)', color: authStatus === 'used' ? '#34d399' : authStatus === 'expired' ? '#f87171' : 'var(--accent)' }}>{authStatus === 'idle' ? '🟢 待使用' : authStatus === 'used' ? '✅ 已使用' : '❌ 已过期'}</span>
+            {authStatus !== 'used' && authExpiresAt > Date.now() && (<span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}><Clock size={12} /> {Math.floor((authExpiresAt - Date.now()) / 60000)}分</span>)}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: authStatus === 'used' ? 'rgba(52,211,153,0.15)' : authStatus === 'expired' ? 'rgba(248,113,113,0.15)' : 'rgba(124,106,247,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Key size={16} style={{ color: authStatus === 'used' ? '#34d399' : authStatus === 'expired' ? '#f87171' : 'var(--accent)' }} />
+          </div>
+          <div style={{ fontSize: 13, fontFamily: 'monospace', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {authKey ? maskMiddle(authKey) : '加载中...'}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden', marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}><div className="table-wrap" style={{ margin: 0 }}><table><thead><tr><th>名称</th><th style={{ width: 120 }}>状态</th><th style={{ width: 100 }}>操作</th></tr></thead><tbody>{loading ? Array.from({ length: 3 }).map((_, i) => (<tr key={i}><td><span className="skeleton" style={{ width: '50%', height: 16 }} /></td><td><span className="skeleton" style={{ width: 60, height: 16 }} /></td><td><span className="skeleton" style={{ width: 64, height: 16 }} /></td></tr>)) : keys.length === 0 ? <tr><td colSpan={3}><div className="empty-state">🔑 暂无密钥</div></td></tr> : keys.map((k: any) => (<tr key={k.id}><td style={{ fontWeight: 600 }}>{k.name || '(未命名)'}</td><td><span onClick={() => toggleKey(k.id)} style={{ cursor: 'pointer', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 10, background: k.status === 'active' ? 'rgba(52,211,153,0.12)' : 'rgba(156,163,175,0.12)', color: k.status === 'active' ? '#34d399' : '#9ca3af' }}>{k.status === 'active' ? '● 启用' : '○ 禁用'}</span></td><td><div style={{ display: 'flex', gap: 6 }}><button className="btn btn-sm btn-ghost" onClick={() => openEdit(k)}><Settings size={13} /></button><button className="btn btn-sm btn-ghost" style={{ color: '#f87171' }} onClick={() => deleteKey(k.id)}><Trash2 size={13} /></button></div></td></tr>))}</tbody></table></div></div>
+
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px 20px', marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}><span style={{ fontWeight: 600, fontSize: 14 }}>📊 最近调用记录</span><span style={{ fontSize: 12, color: 'var(--text-muted)' }}>合并后 <strong style={{ color: 'var(--text)' }}>{stats.total}</strong> 条 ｜ ✅ {stats.today_success}  ❌ {stats.today_failed}</span></div>
+        {recentLogs.length === 0 ? (<div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: 13 }}>暂无调用记录</div>) : (
+          <><div style={{ overflowX: 'auto' }}><table style={{ width: '100%', fontSize: 12 }}><thead><tr><th style={{ width: 70, textAlign: 'left' }}>时间</th><th style={{ width: 100, textAlign: 'left' }}>项目</th><th style={{ textAlign: 'left' }}>卡密</th></tr></thead><tbody>
+            {pagedLogs.map((l: any) => (<Fragment key={l.id}><tr onClick={() => { setExpandedLogId(expandedLogId === l.id ? null : l.id); setExpandedSubId(null); }} style={{ cursor: 'pointer', transition: 'background 0.2s', background: expandedLogId === l.id ? 'var(--bg-hover)' : 'transparent' }}><td style={{ color: 'var(--text-muted)', fontSize: 11 }}>{new Date(l.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</td><td style={{ fontWeight: 500 }}>{l.key_name}</td><td><code style={{ fontSize: 11, color: l.status === 'success' ? 'var(--text)' : '#f87171' }}>{l.card_key || '—'}</code></td></tr>
+            {expandedLogId === l.id && (<tr key={l.id + '-detail'}><td colSpan={3} style={{ padding: 0 }}><div style={{ borderTop: '1px solid var(--border)' }}>{l.sub_items && l.sub_items.length > 0 ? l.sub_items.map((sub: any, index: number) => (<SubRow key={`${l.id}-sub-${index}`} sub={sub} index={index} logId={l.id} />)) : <SubRow sub={l} index={0} logId={l.id} />}</div></td></tr>)}</Fragment>))}
+          </tbody></table></div>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 14 }}>
+            <button className="page-btn" onClick={() => setLogPage(p => Math.max(1, p - 1))} disabled={logPage === 1}>◀</button>
+            {searchCardOpen ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg)', padding: '4px 8px', borderRadius: 8, border: '1px solid var(--border)' }}>
+                <Search size={12} style={{ color: 'var(--text-muted)' }} />
+                <input
+                  autoFocus
+                  value={searchCardValue}
+                  onChange={e => setSearchCardValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleSearchSubmit(); }}
+                  onBlur={handleSearchSubmit}
+                  placeholder="搜索卡密..."
+                  style={{ width: 120, border: 'none', outline: 'none', background: 'transparent', fontSize: 12, color: 'var(--text)' }}
+                />
+                <X size={12} style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => { setSearchCardOpen(false); setSearchCardValue(''); fetchRecentLogs(); }} />
+              </div>
+            ) : (
+              <span
+                onClick={() => setSearchCardOpen(true)}
+                style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--bg)', padding: '4px 12px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer' }}
+              >
+                {logPage} / {totalLogPages}
+              </span>
+            )}
+            <button className="page-btn" onClick={() => setLogPage(p => Math.min(totalLogPages, p + 1))} disabled={logPage >= totalLogPages}>▶</button>
+          </div></>
+        )}
+      </div>
+
+      {showTest && (<div className="modal-overlay" onClick={() => setShowTest(false)}><div className="modal" style={{ maxWidth: 520, borderRadius: 20, padding: 24 }} onClick={e => e.stopPropagation()}><h2 className="modal-title">🧪 在线测试</h2><div style={{ display: 'flex', marginBottom: 16 }}><button onClick={() => setTestTab('sign')} style={{ flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: testTab === 'sign' ? 700 : 500, borderBottom: testTab === 'sign' ? '2px solid var(--accent)' : '2px solid transparent', color: testTab === 'sign' ? 'var(--accent)' : 'var(--text-muted)', background: 'none' }}>✍️ 签名测试</button><button onClick={() => setTestTab('crypto')} style={{ flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: testTab === 'crypto' ? 700 : 500, borderBottom: testTab === 'crypto' ? '2px solid var(--accent)' : '2px solid transparent', color: testTab === 'crypto' ? 'var(--accent)' : 'var(--text-muted)', background: 'none' }}>🔐 加解密测试</button></div><div className="form-group"><label className="form-label">选择项目</label><select value={selectedKey?.id || ''} onChange={e => { const k = keys.find(x => x.id === e.target.value); setSelectedKey(k || null); }} style={inputStyle}><option value="">请选择</option>{keys.map(k => <option key={k.id} value={k.id}>{k.name || k.id}</option>)}</select></div>{testTab === 'sign' && <><div className="form-group"><label className="form-label">参数 (每行 key=value)</label><textarea value={testParams} onChange={e => setTestParams(e.target.value)} rows={4} style={{ ...inputStyle, fontFamily: 'monospace', fontSize: 12 }} /></div><button className="btn btn-primary" disabled={!selectedKey || !authKey} onClick={() => { const params: any = {}; testParams.split('\n').forEach((l: string) => { const i = l.indexOf('='); if (i > -1) params[l.slice(0, i).trim()] = l.slice(i + 1).trim(); }); testApi('/api/ts/sign?auth_key=' + encodeURIComponent(authKey), { key_name: selectedKey.name, params, source: 'web_test' }); }}>🚀 执行签名</button></>}{testTab === 'crypto' && selectedKey && <><div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>使用 <strong>{selectedKey.name}</strong> 的加密配置</div><div className="form-group"><textarea value={cryptoText} onChange={e => setCryptoText(e.target.value)} placeholder="要加密/解密的文本" rows={3} style={{ ...inputStyle, fontFamily: 'monospace', fontSize: 12 }} /></div><div style={{ display: 'flex', gap: 10 }}><button className="btn btn-primary" disabled={!authKey || !cryptoText} onClick={() => testApi('/api/ts/encrypt', { auth_key: authKey, key_name: selectedKey.name, text: cryptoText, source: 'web_test' })}><Lock size={14} /> 加密</button><button className="btn btn-ghost" disabled={!authKey || !cryptoText} onClick={() => testApi('/api/ts/decrypt', { auth_key: authKey, key_name: selectedKey.name, text: cryptoText, source: 'web_test' })}><Unlock size={14} /> 解密</button></div></>}{testResult && <pre style={{ background: 'var(--bg)', padding: 14, borderRadius: 12, fontSize: 12, overflow: 'auto', maxHeight: 280, marginTop: 14 }}>{JSON.stringify(testResult, null, 2)}</pre>}<div className="modal-actions"><button className="btn btn-ghost" onClick={() => setShowTest(false)}>关闭</button></div></div></div>)}
+      {showAdd && form && (<div className="modal-overlay" onClick={() => setShowAdd(false)}><div className="modal" style={{ maxWidth: 600, borderRadius: 20, padding: 24, maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}><h2 className="modal-title">{form.id ? '编辑密钥' : '添加密钥'}</h2><div style={{ display: 'flex', marginBottom: 16 }}><button onClick={() => setAddTab('main')} style={{ flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: addTab === 'main' ? 700 : 500, borderBottom: addTab === 'main' ? '2px solid var(--accent)' : '2px solid transparent', color: addTab === 'main' ? 'var(--accent)' : 'var(--text-muted)', background: 'none' }}>🏠 主页</button><button onClick={() => setAddTab('crypto')} style={{ flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: addTab === 'crypto' ? 700 : 500, borderBottom: addTab === 'crypto' ? '2px solid var(--accent)' : '2px solid transparent', color: addTab === 'crypto' ? 'var(--accent)' : 'var(--text-muted)', background: 'none' }}>🔐 加解密</button></div>{addTab === 'main' && <><div className="form-group"><label className="form-label">密钥名称</label><input value={form.name || ''} onChange={e => setForm({ ...form, name: e.target.value })} style={inputStyle} /></div><SectionHeader title="签名逻辑" sectionKey="sign" icon="✍️" />{expandedSections.sign && <div style={{ padding: '0 0 16px' }}><textarea value={form.sign_code || ''} onChange={e => setForm({ ...form, sign_code: e.target.value })} style={codeAreaStyle} /></div>}<SectionHeader title="请求参数结构" sectionKey="params" icon="📋" />{expandedSections.params && <div style={{ padding: '0 0 16px' }}><textarea value={form.params_template || ''} onChange={e => setForm({ ...form, params_template: e.target.value })} style={codeAreaStyle} /></div>}<SectionHeader title="响应参数结构" sectionKey="response" icon="📤" />{expandedSections.response && <div style={{ padding: '0 0 16px' }}><textarea value={form.response_template || ''} onChange={e => setForm({ ...form, response_template: e.target.value })} style={codeAreaStyle} /></div>}</>}{addTab === 'crypto' && <><SectionHeader title="加密逻辑" sectionKey="encrypt" icon="🔐" />{expandedSections.encrypt && <div style={{ padding: '0 0 16px' }}><textarea value={form.encrypt_code || ''} onChange={e => setForm({ ...form, encrypt_code: e.target.value })} style={codeAreaStyle} /></div>}<SectionHeader title="解密逻辑" sectionKey="decrypt" icon="🔓" />{expandedSections.decrypt && <div style={{ padding: '0 0 16px' }}><textarea value={form.decrypt_code || ''} onChange={e => setForm({ ...form, decrypt_code: e.target.value })} style={codeAreaStyle} /></div>}</>}<div style={{ marginTop: 20, display: 'flex', gap: 10, justifyContent: 'flex-end' }}><button className="btn btn-ghost" onClick={() => setShowAdd(false)}>取消</button><button className="btn btn-primary" onClick={saveKey}>💾 保存</button></div></div></div>)}
+    </div>
+  );
+}

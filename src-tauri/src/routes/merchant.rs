@@ -11,6 +11,7 @@ use axum::{
 use bcrypt::{hash, DEFAULT_COST};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::Digest;
 use uuid::Uuid;
 
 #[derive(Deserialize)]
@@ -185,14 +186,17 @@ async fn regenerate_api_key(
     };
 
     let new_key = crate::utils::card_gen::generate_api_key();
+    let encrypted = state.encryptor.encrypt(&new_key, "api_key").unwrap_or_default();
+    let hash = hex::encode(sha2::Sha256::digest(new_key.as_bytes()));
+
     let _ = sqlx::query(
-        "UPDATE merchants SET api_key = $1, updated_at = NOW() WHERE id = $2",
+        "UPDATE merchants SET api_key_encrypted = $1, api_key_hash = $2, updated_at = NOW() WHERE id = $3",
     )
-    .bind(&new_key)
+    .bind(&encrypted)
+    .bind(&hash)
     .bind(id)
     .execute(&state.pool)
     .await;
 
     Json(json!({"success": true, "data": {"api_key": new_key}}))
 }
-

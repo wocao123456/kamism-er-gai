@@ -18,7 +18,7 @@
   --text-muted: #55556a;
   --mono: 'JetBrains Mono', monospace;
   --sans: 'Syne', sans-serif;
-  --sidebar-w: 220px;
+  --sidebar-w: 200px;
   --header-h: 56px;
 }
 
@@ -40,7 +40,7 @@
   --text-muted: #8888a0;
   --mono: 'JetBrains Mono', monospace;
   --sans: 'Syne', sans-serif;
-  --sidebar-w: 220px;
+  --sidebar-w: 200px;
   --header-h: 56px;
 }
 

@@ -49,11 +49,14 @@ FROM debian:bookworm-slim
 
 WORKDIR /app
 
-# [6/6] 安装运行时依赖
+# [6/6] 安装运行时依赖（新增 python3-pip 和 pycryptodome）
 RUN echo "==> [6/6] 安装运行时依赖..." \
     && apt-get update && apt-get install -y \
+        python3 \
+        python3-pip \
         ca-certificates \
         libssl3 \
+    && python3 -m pip install --break-system-packages pycryptodome \
     && rm -rf /var/lib/apt/lists/* \
     && echo "==> [6/6] 后端镜像构建完成，等待启动..."
 

@@ -1,3 +1,6 @@
+use redis::AsyncCommands;
+use sha2::Digest;
+use rand::Rng;
 pub mod db;
 pub mod middleware;
 pub mod models;
@@ -16,20 +19,15 @@ use axum::middleware as axum_middleware;
 use crate::middleware::auth::AppState;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-/// 返回配置的 API 服务器地址（供前端使用）
-/// API_URL 在编译时通过环境变量写死进二进制，打包后不依赖 .env 文件
 #[cfg(feature = "desktop")]
 #[tauri::command]
 fn get_api_url() -> String {
-    // 编译时确定的服务器地址，优先级：编译时 API_URL 环境变量 > 默认值
     option_env!("API_URL").unwrap_or("http://localhost:9527").to_string()
 }
 
-/// Tauri 桌面客户端入口（仅 desktop feature 启用时编译）
 #[cfg(feature = "desktop")]
 pub fn run() {
     let _ = dotenv();
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![get_api_url])
@@ -37,7 +35,6 @@ pub fn run() {
         .expect("运行 Tauri 应用失败");
 }
 
-/// 独立服务器入口（供 server/ crate 调用）
 pub async fn start_server() -> anyhow::Result<()> {
     let _ = dotenv();
 
@@ -83,7 +80,7 @@ pub async fn start_server() -> anyhow::Result<()> {
     let encryptor = Arc::new(utils::kms::Encryptor::new(kms));
     tracing::info!("KMS 初始化成功");
 
-    init_admin(&pool).await;
+    init_admin(&pool, &encryptor).await;
     let ws_registry = crate::utils::ws::WsRegistry::new();
     let state = AppState {
         pool: pool.clone(),
@@ -95,7 +92,6 @@ pub async fn start_server() -> anyhow::Result<()> {
         ws_registry: ws_registry.clone(),
     };
 
-    // 启动降级消费者（独立 task，传入独立 Redis 连接）
     let worker_pool = pool.clone();
     let worker_channel = (*mq_channel).clone();
     let worker_redis = redis_conn.clone();
@@ -103,7 +99,6 @@ pub async fn start_server() -> anyhow::Result<()> {
         workers::downgrade::run_downgrade_worker(worker_pool, worker_channel, worker_redis).await;
     });
 
-    // 启动升级恢复消费者（独立 task，传入独立 Redis 连接）
     let upgrade_pool = pool.clone();
     let upgrade_channel = (*mq_channel).clone();
     let upgrade_redis = redis_conn.clone();
@@ -111,32 +106,64 @@ pub async fn start_server() -> anyhow::Result<()> {
         workers::downgrade::run_upgrade_worker(upgrade_pool, upgrade_channel, upgrade_redis).await;
     });
 
-    // 启动定时扫描任务：每 60 秒扫描一次到期商户，发布降级消息
     let scanner_pool = pool.clone();
     let scanner_channel = mq_channel.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+        loop { interval.tick().await; scan_and_enqueue(&scanner_pool, &scanner_channel).await; }
+    });
+
+    // 风控自动解封：每30秒清理到期黑名单
+    let unblock_pool = pool.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
         loop {
             interval.tick().await;
-            scan_and_enqueue(&scanner_pool, &scanner_channel).await;
+            let now = chrono::Utc::now();
+            let _ = sqlx::query("DELETE FROM ip_blacklist WHERE blocked_until IS NOT NULL AND blocked_until <= $1").bind(now).execute(&unblock_pool).await;
+            let _ = sqlx::query("DELETE FROM device_blacklist WHERE blocked_until IS NOT NULL AND blocked_until <= $1").bind(now).execute(&unblock_pool).await;
         }
     });
 
-    // CORS：生产环境从环境变量读取允许的 origin，开发环境允许 Any
+    // 每3小时清空操作日志
+    let log_clean_pool = pool.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10800));
+        loop {
+            interval.tick().await;
+            let cutoff = chrono::Utc::now() - chrono::Duration::hours(3);
+            let _ = sqlx::query("DELETE FROM activation_alerts WHERE created_at < $1").bind(cutoff).execute(&log_clean_pool).await;
+            let _ = sqlx::query("DELETE FROM api_call_logs WHERE created_at < $1").bind(cutoff).execute(&log_clean_pool).await;
+        }
+    });
+
+    let clean_pool = pool.clone();
+    let clean_redis = redis_conn.clone();
+    tokio::spawn(async move {
+        loop {
+            let now = chrono::Utc::now();
+            let next_midnight = (now + chrono::Duration::days(1)).date_naive().and_hms_opt(0,0,0).unwrap();
+            let next_midnight = chrono::DateTime::from_naive_utc_and_offset(next_midnight, chrono::Utc);
+            let wait_secs = (next_midnight - now).num_seconds().max(60) as u64;
+            tokio::time::sleep(tokio::time::Duration::from_secs(wait_secs)).await;
+            let mut conn = clean_redis.clone();
+            let k1: Vec<String> = conn.keys("ts:*".to_string()).await.unwrap_or_default();
+            for k in k1 { let _: () = conn.del(&k).await.unwrap_or(()); }
+            let k2: Vec<String> = conn.keys("ts_used:*".to_string()).await.unwrap_or_default();
+            for k in k2 { let _: () = conn.del(&k).await.unwrap_or(()); }
+            tracing::info!("凌晨清空: Redis 鉴权密钥已清理");
+            let _ = sqlx::query("DELETE FROM api_call_logs").execute(&clean_pool).await;
+            tracing::info!("凌晨清空: api_call_logs 表已清理");
+        }
+    });
+
     let allowed_origin = env::var("ALLOWED_ORIGIN").unwrap_or_default();
     let cors = if allowed_origin.is_empty() {
-        CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
-            .allow_headers(Any)
+        CorsLayer::new().allow_origin(Any).allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS]).allow_headers(Any)
     } else {
         use axum::http::HeaderValue;
-        let origin = allowed_origin.parse::<HeaderValue>()
-            .unwrap_or_else(|_| HeaderValue::from_static("*"));
-        CorsLayer::new()
-            .allow_origin(origin)
-            .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
-            .allow_headers(Any)
+        let origin = allowed_origin.parse::<HeaderValue>().unwrap_or_else(|_| HeaderValue::from_static("*"));
+        CorsLayer::new().allow_origin(origin).allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS]).allow_headers(Any)
     };
 
     routes::health::init_start_time();
@@ -157,40 +184,24 @@ pub async fn start_server() -> anyhow::Result<()> {
         .merge(routes::webhooks::webhooks_router(state.clone()))
         .merge(routes::blacklist::blacklist_router(state.clone()))
         .merge(routes::agent::agent_router(state.clone()))
+        .nest("/api/keys", routes::api_keys::api_keys_router(state.clone()))
+        .nest("/api/ts", routes::api_ts::api_ts_router(state.clone()))
         .layer(axum_middleware::from_fn(middleware::security::security_headers))
-        // 响应压缩：gzip / brotli，自动根据客户端 Accept-Encoding 协商
-        // 对 JSON 响应压缩率通常 60-80%，显著降低带宽占用和客户端解析时间
         .layer(CompressionLayer::new())
-        // 请求体大小限制：防止超大 payload 耗尽内存/带宽（DoS 防护）
-        // 大多数 API 请求远不需要 2MB，批量生成卡密最大约 ~4KB
-        .layer(RequestBodyLimitLayer::new(2 * 1024 * 1024)) // 2MB
+        .layer(RequestBodyLimitLayer::new(2 * 1024 * 1024))
         .layer(cors)
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     tracing::info!("KamiSM 服务器已启动，监听端口: {}", port);
-
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .await?;
-
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
     Ok(())
 }
 
-/// 扫描到期商户，将商户 ID 投递到降级队列
 async fn scan_and_enqueue(pool: &db::DbPool, channel: &Arc<lapin::Channel>) {
     let expired: Vec<(uuid::Uuid,)> = sqlx::query_as(
-        "SELECT id FROM merchants
-         WHERE plan = 'pro'
-           AND plan_expires_at IS NOT NULL
-           AND plan_expires_at <= NOW()",
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
-
+        "SELECT id FROM merchants WHERE plan = 'pro' AND plan_expires_at IS NOT NULL AND plan_expires_at <= NOW()",
+    ).fetch_all(pool).await.unwrap_or_default();
     for (merchant_id,) in expired {
         if let Err(e) = utils::mq::publish_downgrade(channel, &merchant_id.to_string()).await {
             tracing::error!("发布降级消息失败 {}: {}", merchant_id, e);
@@ -200,29 +211,26 @@ async fn scan_and_enqueue(pool: &db::DbPool, channel: &Arc<lapin::Channel>) {
     }
 }
 
-async fn init_admin(pool: &db::DbPool) {
-    let exists: Option<(String,)> =
-        sqlx::query_as("SELECT id::text FROM admins LIMIT 1")
-            .fetch_optional(pool)
-            .await
-            .unwrap_or(None);
-
-    if exists.is_some() {
-        return;
+async fn init_admin(pool: &db::DbPool, encryptor: &Arc<utils::kms::Encryptor>) {
+    let exists: Option<(String,)> = sqlx::query_as("SELECT id::text FROM admins LIMIT 1").fetch_optional(pool).await.unwrap_or(None);
+    if exists.is_none() {
+        let admin_email = env::var("ADMIN_EMAIL").unwrap_or_else(|_| "admin@kamism.com".to_string());
+        let admin_password = env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "Admin@123456".to_string());
+        let password_hash = bcrypt::hash(&admin_password, bcrypt::DEFAULT_COST).unwrap();
+        let _ = sqlx::query("INSERT INTO admins (username, email, password_hash) VALUES ($1, $2, $3)").bind("admin").bind(&admin_email).bind(&password_hash).execute(pool).await;
+        tracing::info!("初始管理员账号已创建: {}", admin_email);
     }
-
-    let admin_email = env::var("ADMIN_EMAIL").unwrap_or_else(|_| "admin@kamism.com".to_string());
-    let admin_password = env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "Admin@123456".to_string());
-    let password_hash = bcrypt::hash(&admin_password, bcrypt::DEFAULT_COST).unwrap();
-
-    let _ = sqlx::query(
-        "INSERT INTO admins (username, email, password_hash) VALUES ($1, $2, $3)",
-    )
-    .bind("admin")
-    .bind(&admin_email)
-    .bind(&password_hash)
-    .execute(pool)
-    .await;
-
-    tracing::info!("初始管理员账号已创建: {}", admin_email);
+    let merchant_exists: Option<(String,)> = sqlx::query_as("SELECT id::text FROM merchants WHERE username = 'admin' LIMIT 1").fetch_optional(pool).await.unwrap_or(None);
+    if merchant_exists.is_none() {
+        let mid = uuid::Uuid::new_v4();
+        let raw_api_key = format!("km_{}", (0..30).map(|_| { let c = rand::thread_rng().gen_range(0..36); if c < 10 { ('0' as u8 + c) as char } else { ('a' as u8 + c - 10) as char } }).collect::<String>());
+        let email = "admin@kamism.local";
+        let api_key_hash = format!("{:x}", sha2::Sha256::digest(raw_api_key.as_bytes()));
+        let email_hash = format!("{:x}", sha2::Sha256::digest(email.as_bytes()));
+        let admin_password = env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "Admin@123456".to_string());
+        let password_hash = bcrypt::hash(&admin_password, bcrypt::DEFAULT_COST).unwrap_or_default();
+        let _ = sqlx::query("INSERT INTO merchants (id, username, email_encrypted, email_hash, api_key_encrypted, api_key_hash, password_hash, status, plan, email_verified) VALUES ($1,$2,$3,$4,$5,$6,$7,'active','free',true)")
+            .bind(mid).bind("admin").bind(&encryptor.encrypt(email, &format!("email_{}", mid)).unwrap_or_default()).bind(&email_hash).bind(&encryptor.encrypt(&raw_api_key, &format!("api_key_{}", mid)).unwrap_or_default()).bind(&api_key_hash).bind(&password_hash).execute(pool).await;
+        tracing::info!("管理员商户账号已创建: {} , API Key: {}", email, raw_api_key);
+    }
 }

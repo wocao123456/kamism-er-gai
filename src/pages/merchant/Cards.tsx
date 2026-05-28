@@ -48,14 +48,15 @@ export default function Cards() {
   const [statsLoading, setStatsLoading] = useState(false);
 
   const [form, setForm] = useState({
-    app_id: '', count: 10, duration_days: 30, max_devices: 1, note: '',
-    prefix: 'KAMI', segment_count: 4, segment_len: 4,
+    app_id: '', count: 1, duration_days: 30, max_devices: 1, note: '',
+    prefix: 'CHKM', segment_count: 4, segment_len: 4,
+    enable_device_limit: false, enable_ip_limit: false, max_ips: 1,
   });
 
-  // 搜索过滤状态
   const [searchCode, setSearchCode] = useState('');
   const [filterAppId, setFilterAppId] = useState('');
   const [filterExpireDate, setFilterExpireDate] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
 
   const load = (p = page, ps = pageSize) => {
     setLoading(true);
@@ -65,6 +66,7 @@ export default function Cards() {
         let filtered = res.data.data;
         if (searchCode) filtered = filtered.filter((c: Card) => c.code.toLowerCase().includes(searchCode.toLowerCase()));
         if (filterAppId) filtered = filtered.filter((c: Card) => c.app_id === filterAppId);
+        if (filterStatus) filtered = filtered.filter((c: Card) => c.status === filterStatus);
         if (filterExpireDate) {
           const fd = new Date(filterExpireDate);
           filtered = filtered.filter((c: Card) => c.expires_at && new Date(c.expires_at).toDateString() === fd.toDateString());
@@ -84,8 +86,7 @@ export default function Cards() {
 
   useEffect(() => {
     load(page, pageSize);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, searchCode, filterAppId, filterExpireDate]);
+  }, [page, pageSize, searchCode, filterAppId, filterExpireDate, filterStatus]);
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,7 +95,7 @@ export default function Cards() {
     try {
       const res = await cardsApi.generate({
         app_id: form.app_id, count: form.count,
-        duration_days: form.duration_days, max_devices: form.max_devices,
+        duration_days: form.duration_days, max_devices: form.enable_device_limit ? form.max_devices : 999,
         note: form.note || undefined,
         prefix: form.prefix || undefined,
         segment_count: form.segment_count,
@@ -147,6 +148,18 @@ export default function Cards() {
     } catch { toast.error('删除失败'); }
   };
 
+  const handleBatchDelete = async () => {
+    if (selectedIds.length === 0) return;
+    const ok = await confirm({ title: '批量删除', message: `确认删除选中 ${selectedIds.length} 张卡密？仅可删除未使用的。`, confirmText: '删除', danger: true });
+    if (!ok) return;
+    let okCount = 0;
+    for (const id of selectedIds) {
+      try { const r = await cardsApi.delete(id); if (r.data.success) okCount++; } catch {}
+    }
+    toast.success(`删除 ${okCount} 张`);
+    setSelectedIds([]); load();
+  };
+
   const handleBatchExtend = async () => {
     if (selectedIds.length === 0) { toast.error('请先勾选卡密'); return; }
     setSubmitting(true);
@@ -183,7 +196,6 @@ export default function Cards() {
   const totalPages = Math.ceil(total / pageSize);
   const statusLabel: Record<string, string> = { unused: '未使用', active: '使用中', expired: '已过期', disabled: '已禁用' };
 
-  // 卡密格式预览
   const formatPreview = (() => {
     const seg = 'X'.repeat(form.segment_len);
     const segs = Array(form.segment_count).fill(seg).join('-');
@@ -206,19 +218,30 @@ export default function Cards() {
             {exporting ? <span className="spinner" /> : <Download size={14} />} 导出 CSV
           </button>
           {selectedIds.length > 0 && (
-            <button className="btn btn-ghost" style={{ color: 'var(--accent)', borderColor: 'rgba(124,106,247,0.4)' }}
-              onClick={() => setShowExtendModal(true)}>
-              <Clock size={14} /> 批量延期 ({selectedIds.length})
-            </button>
+            <>
+              <button className="btn btn-ghost" style={{ color: '#f87171', borderColor: 'rgba(248,113,113,0.4)' }} onClick={handleBatchDelete}>
+                <Trash2 size={14} /> 批量删除 ({selectedIds.length})
+              </button>
+              <button className="btn btn-ghost" style={{ color: 'var(--accent)', borderColor: 'rgba(124,106,247,0.4)' }}
+                onClick={() => setShowExtendModal(true)}>
+                <Clock size={14} /> 批量延期 ({selectedIds.length})
+              </button>
+            </>
           )}
           <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> 生成卡密</button>
         </div>
       </div>
 
-      {/* 搜索过滤 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 20 }}>
         <div className="form-group" style={{ margin: 0 }}>
           <label className="form-label" style={{ fontSize: 12 }}>搜索卡密</label>
+        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }} style={{ fontSize: 13 }}>
+          <option value="">全部状态</option>
+          <option value="unused">未使用</option>
+          <option value="active">使用中</option>
+          <option value="expired">已过期</option>
+          <option value="disabled">已禁用</option>
+        </select>
           <input type="text" placeholder="输入卡密代码..." value={searchCode} onChange={e => setSearchCode(e.target.value)} style={{ fontSize: 13 }} />
         </div>
         <div className="form-group" style={{ margin: 0 }}>
@@ -234,10 +257,7 @@ export default function Cards() {
         </div>
         {(searchCode || filterAppId || filterExpireDate) && (
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <button className="btn btn-ghost" style={{ fontSize: 12 }}
-              onClick={() => { setSearchCode(''); setFilterAppId(''); setFilterExpireDate(''); }}>
-              清除过滤
-            </button>
+            <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => { setSearchCode(''); setFilterAppId(''); setFilterExpireDate(''); }}>清除过滤</button>
           </div>
         )}
       </div>
@@ -245,18 +265,14 @@ export default function Cards() {
       <div className="table-wrap">
         <table>
           <thead><tr>
-            <th style={{ width: 36 }}>
-              <input type="checkbox" checked={selectedIds.length === cards.length && cards.length > 0}
-                onChange={toggleSelectAll} />
-            </th>
+            <th style={{ width: 36 }}><input type="checkbox" checked={selectedIds.length === cards.length && cards.length > 0} onChange={toggleSelectAll} /></th>
             <th>卡密</th><th>应用</th><th>有效期</th><th>设备上限</th><th>状态</th><th>过期时间</th><th>备注</th><th>操作</th>
           </tr></thead>
           <tbody>
             {loading ? (
               Array.from({ length: pageSize }).map((_, i) => (
                 <tr key={i} className="skeleton-row">
-                  <td></td>
-                  <td><span className="skeleton" style={{ width: '72%' }} /></td>
+                  <td></td><td><span className="skeleton" style={{ width: '72%' }} /></td>
                   <td><span className="skeleton" style={{ width: '55%' }} /></td>
                   <td><span className="skeleton" style={{ width: '40%' }} /></td>
                   <td><span className="skeleton" style={{ width: '40%' }} /></td>
@@ -279,21 +295,15 @@ export default function Cards() {
                 </td>
                 <td><span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{getAppName(card.app_id)}</span></td>
                 <td>{card.duration_days} 天</td>
-                <td>{card.max_devices} 台</td>
+                <td>{card.max_devices >= 999 ? '不限' : `${card.max_devices} 台`}</td>
                 <td><span className={`badge badge-${card.status}`}>{statusLabel[card.status]}</span></td>
                 <td>{card.expires_at ? new Date(card.expires_at).toLocaleDateString('zh-CN') : '—'}</td>
                 <td><span style={{ color: 'var(--text-muted)' }}>{card.note || '—'}</span></td>
                 <td>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    {card.status !== 'disabled' && (
-                      <button className="btn btn-sm btn-danger" onClick={() => handleDisable(card.id)}><Ban size={12} /></button>
-                    )}
-                    {card.status === 'disabled' && (
-                      <button className="btn btn-sm btn-ghost" style={{ color: 'var(--success)', borderColor: 'rgba(52,211,153,0.3)' }} onClick={() => handleEnable(card.id)}><CheckCircle size={12} /></button>
-                    )}
-                    {card.status === 'unused' && (
-                      <button className="btn btn-sm btn-ghost" onClick={() => handleDelete(card.id)}><Trash2 size={12} /></button>
-                    )}
+                    {card.status !== 'disabled' && <button className="btn btn-sm btn-danger" onClick={() => handleDisable(card.id)}><Ban size={12} /></button>}
+                    {card.status === 'disabled' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--success)', borderColor: 'rgba(52,211,153,0.3)' }} onClick={() => handleEnable(card.id)}><CheckCircle size={12} /></button>}
+                    {card.status === 'unused' && <button className="btn btn-sm btn-ghost" onClick={() => handleDelete(card.id)}><Trash2 size={12} /></button>}
                   </div>
                 </td>
               </tr>
@@ -304,11 +314,9 @@ export default function Cards() {
 
       <div className="pagination">
         <button className="page-btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹</button>
-        {Array.from({ length: totalPages }, (_, i) => i + 1)
-          .slice(Math.max(0, page - 3), Math.min(totalPages, page + 2))
-          .map(p => (
-            <button key={p} className={`page-btn ${p === page ? 'active' : ''}`} onClick={() => setPage(p)}>{p}</button>
-          ))}
+        {Array.from({ length: totalPages }, (_, i) => i + 1).slice(Math.max(0, page - 3), Math.min(totalPages, page + 2)).map(p => (
+          <button key={p} className={`page-btn ${p === page ? 'active' : ''}`} onClick={() => setPage(p)}>{p}</button>
+        ))}
         <button className="page-btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>›</button>
         <span style={{ color: 'var(--text-muted)', fontSize: 12, margin: '0 4px' }}>每页</span>
         {PAGE_SIZE_OPTIONS.map(s => (
@@ -316,7 +324,6 @@ export default function Cards() {
         ))}
       </div>
 
-      {/* ── 生成卡密弹窗 ── */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -339,35 +346,55 @@ export default function Cards() {
                   <input type="number" min={1} value={form.duration_days} onChange={e => setForm({ ...form, duration_days: +e.target.value })} required />
                 </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">最大设备数（每张）</label>
-                <input type="number" min={1} max={100} value={form.max_devices} onChange={e => setForm({ ...form, max_devices: +e.target.value })} required />
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label className="form-label" style={{ margin: 0, whiteSpace: 'nowrap' }}>设备限制:</label>
+                  <button type="button" onClick={() => setForm({ ...form, enable_device_limit: !form.enable_device_limit })} style={{
+                    width: 36, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+                    background: form.enable_device_limit ? '#34d399' : '#555',
+                    position: 'relative', transition: 'background 0.2s',
+                  }}>
+                    <span style={{ position: 'absolute', top: 2, left: form.enable_device_limit ? 16 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+                  </button>
+                  <input type="number" min={1} max={999} value={form.max_devices}
+                    onChange={e => setForm({ ...form, max_devices: +e.target.value })}
+                    disabled={!form.enable_device_limit}
+                    style={{ width: 60, opacity: form.enable_device_limit ? 1 : 0.4 }} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label className="form-label" style={{ margin: 0, whiteSpace: 'nowrap' }}>IP 限制:</label>
+                  <button type="button" onClick={() => setForm({ ...form, enable_ip_limit: !form.enable_ip_limit })} style={{
+                    width: 36, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+                    background: form.enable_ip_limit ? '#34d399' : '#555',
+                    position: 'relative', transition: 'background 0.2s',
+                  }}>
+                    <span style={{ position: 'absolute', top: 2, left: form.enable_ip_limit ? 16 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+                  </button>
+                  <input type="number" min={1} max={999} value={form.max_ips}
+                    onChange={e => setForm({ ...form, max_ips: +e.target.value })}
+                    disabled={!form.enable_ip_limit}
+                    style={{ width: 60, opacity: form.enable_ip_limit ? 1 : 0.4 }} />
+                </div>
               </div>
 
-              {/* 格式自定义 */}
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 4 }}>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>卡密格式自定义</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label className="form-label" style={{ fontSize: 11 }}>前缀</label>
-                    <input value={form.prefix} maxLength={16}
-                      onChange={e => setForm({ ...form, prefix: e.target.value.toUpperCase() })}
-                      placeholder="KAMI" style={{ fontSize: 13 }} />
+                    <input value={form.prefix} maxLength={16} onChange={e => setForm({ ...form, prefix: e.target.value.toUpperCase() })} placeholder="KAMI" style={{ fontSize: 13 }} />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label className="form-label" style={{ fontSize: 11 }}>段数 (1-8)</label>
-                    <input type="number" min={1} max={8} value={form.segment_count}
-                      onChange={e => setForm({ ...form, segment_count: +e.target.value })} style={{ fontSize: 13 }} />
+                    <input type="number" min={1} max={8} value={form.segment_count} onChange={e => setForm({ ...form, segment_count: +e.target.value })} style={{ fontSize: 13 }} />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label className="form-label" style={{ fontSize: 11 }}>每段长度 (2-8)</label>
-                    <input type="number" min={2} max={8} value={form.segment_len}
-                      onChange={e => setForm({ ...form, segment_len: +e.target.value })} style={{ fontSize: 13 }} />
+                    <input type="number" min={2} max={8} value={form.segment_len} onChange={e => setForm({ ...form, segment_len: +e.target.value })} style={{ fontSize: 13 }} />
                   </div>
                 </div>
-                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--accent)', fontFamily: 'monospace', letterSpacing: 1 }}>
-                  预览：{formatPreview}
-                </div>
+                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--accent)', fontFamily: 'monospace', letterSpacing: 1 }}>预览：{formatPreview}</div>
               </div>
 
               <div className="form-group" style={{ marginTop: 12 }}>
@@ -385,20 +412,16 @@ export default function Cards() {
         </div>
       )}
 
-      {/* ── 批量延期弹窗 ── */}
       {showExtendModal && (
         <div className="modal-overlay" onClick={() => setShowExtendModal(false)}>
           <div className="modal" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
             <h2 className="modal-title">批量调整有效期</h2>
             <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
               已选 <strong style={{ color: 'var(--accent)' }}>{selectedIds.length}</strong> 张卡密。
-              正数延期，负数缩短（已激活卡密缩短后不早于当前时间）。
             </p>
             <div className="form-group">
               <label className="form-label">调整天数</label>
-              <input type="number" value={extendDays}
-                onChange={e => setExtendDays(+e.target.value)}
-                placeholder="正数延期，负数缩短" />
+              <input type="number" value={extendDays} onChange={e => setExtendDays(+e.target.value)} />
             </div>
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={() => setShowExtendModal(false)}>取消</button>
@@ -410,47 +433,30 @@ export default function Cards() {
         </div>
       )}
 
-      {/* ── 分组统计弹窗 ── */}
       {showStatsModal && (
         <div className="modal-overlay" onClick={() => setShowStatsModal(false)}>
           <div className="modal" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
             <h2 className="modal-title">卡密分组统计</h2>
             {statsLoading ? (
-              <div style={{ padding: '32px 0', textAlign: 'center' }}>
-                <span className="spinner" style={{ width: 24, height: 24 }} />
-              </div>
+              <div style={{ padding: '32px 0', textAlign: 'center' }}><span className="spinner" style={{ width: 24, height: 24 }} /></div>
             ) : stats.length === 0 ? (
               <div className="empty-state"><div className="empty-state-text">暂无数据</div></div>
             ) : (
               <div className="table-wrap" style={{ marginTop: 0 }}>
                 <table>
-                  <thead><tr>
-                    <th>有效期</th><th>设备上限</th><th>总数</th>
-                    <th>未使用</th><th>使用中</th><th>已过期</th><th>已禁用</th>
-                  </tr></thead>
+                  <thead><tr><th>有效期</th><th>设备上限</th><th>总数</th><th>未使用</th><th>使用中</th><th>已过期</th><th>已禁用</th></tr></thead>
                   <tbody>
                     {stats.map((s, i) => (
-                      <tr key={i}>
-                        <td>{s.duration_days} 天</td>
-                        <td>{s.max_devices} 台</td>
-                        <td><strong>{s.total}</strong></td>
-                        <td style={{ color: '#34d399' }}>{s.unused}</td>
-                        <td style={{ color: '#60a5fa' }}>{s.active}</td>
-                        <td style={{ color: 'var(--text-muted)' }}>{s.expired}</td>
-                        <td style={{ color: '#f87171' }}>{s.disabled}</td>
-                      </tr>
+                      <tr key={i}><td>{s.duration_days} 天</td><td>{s.max_devices} 台</td><td><strong>{s.total}</strong></td><td style={{ color: '#34d399' }}>{s.unused}</td><td style={{ color: '#60a5fa' }}>{s.active}</td><td style={{ color: 'var(--text-muted)' }}>{s.expired}</td><td style={{ color: '#f87171' }}>{s.disabled}</td></tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={() => setShowStatsModal(false)}>关闭</button>
-            </div>
+            <div className="modal-actions"><button className="btn btn-ghost" onClick={() => setShowStatsModal(false)}>关闭</button></div>
           </div>
         </div>
       )}
     </div>
   );
 }
- 

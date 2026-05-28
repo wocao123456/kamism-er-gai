@@ -24,18 +24,14 @@ pub struct GenerateCardsRequest {
     pub duration_days: i32,
     pub max_devices: i32,
     pub note: Option<String>,
-    /// 卡密前缀，默认 "KAMI"，最长 16 字符，仅限字母数字
     pub prefix: Option<String>,
-    /// 段数（不含前缀），1-8，默认 4
     pub segment_count: Option<usize>,
-    /// 每段字符数，2-8，默认 4
     pub segment_len: Option<usize>,
 }
 
 #[derive(Deserialize)]
 pub struct BatchExtendRequest {
     pub ids: Vec<Uuid>,
-    /// 正数延期，负数缩短，单位：天
     pub days: i32,
 }
 
@@ -62,7 +58,6 @@ pub struct CardQuery {
 #[derive(Deserialize)]
 pub struct BatchCardStatusRequest {
     pub ids: Vec<Uuid>,
-    /// "disabled" 或 "unused"（启用）
     pub action: String,
 }
 
@@ -79,18 +74,28 @@ pub fn cards_router(state: AppState) -> Router<AppState> {
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
 
+async fn get_admin_merchant_id(pool: &sqlx::PgPool) -> Uuid {
+    sqlx::query_as::<_, (Uuid,)>("SELECT id FROM merchants WHERE username='admin' LIMIT 1")
+        .fetch_optional(pool).await
+        .ok().flatten()
+        .map(|(id,)| id)
+        .unwrap_or_default()
+}
+
 async fn list_cards(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(q): Query<CardQuery>,
 ) -> Json<Value> {
-    let merchant_id = Uuid::parse_str(&claims.sub).unwrap_or_default();
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        Uuid::parse_str(&claims.sub).unwrap_or_default()
+    };
     let page = q.page.unwrap_or(1).max(1);
     let page_size = q.page_size.unwrap_or(20).min(100);
     let offset = (page - 1) * page_size;
 
-    // 用窗口函数 COUNT(*) OVER() 合并为单次查询，避免两次往返
-    // 显式列举字段，避免 SELECT * 拉取无关列
     const CARD_COLS: &str = "id, app_id, merchant_id, code_encrypted, duration_days, max_devices, status, note, created_at, activated_at, expires_at";
 
     #[derive(sqlx::FromRow)]
@@ -110,46 +115,25 @@ async fn list_cards(
         total_count: i64,
     }
 
-    let (mut cards, total): (Vec<Card>, i64) = if claims.role == "admin" {
-        let rows: Vec<CardWithTotal> = sqlx::query_as(&format!(
-            "SELECT {}, COUNT(*) OVER() AS total_count FROM cards ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-            CARD_COLS
-        ))
-        .bind(page_size)
-        .bind(offset)
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
-        let total = rows.first().map(|r| r.total_count).unwrap_or(0);
-        let cards = rows.into_iter().map(|r| Card {
-            id: r.id, app_id: r.app_id, merchant_id: r.merchant_id,
-            code: r.code, duration_days: r.duration_days, max_devices: r.max_devices,
-            status: r.status, note: r.note, created_at: r.created_at,
-            activated_at: r.activated_at, expires_at: r.expires_at,
-        }).collect();
-        (cards, total)
-    } else {
-        let rows: Vec<CardWithTotal> = sqlx::query_as(&format!(
-            "SELECT {}, COUNT(*) OVER() AS total_count FROM cards WHERE merchant_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
-            CARD_COLS
-        ))
-        .bind(merchant_id)
-        .bind(page_size)
-        .bind(offset)
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
-        let total = rows.first().map(|r| r.total_count).unwrap_or(0);
-        let cards = rows.into_iter().map(|r| Card {
-            id: r.id, app_id: r.app_id, merchant_id: r.merchant_id,
-            code: r.code, duration_days: r.duration_days, max_devices: r.max_devices,
-            status: r.status, note: r.note, created_at: r.created_at,
-            activated_at: r.activated_at, expires_at: r.expires_at,
-        }).collect();
-        (cards, total)
-    };
+    let rows: Vec<CardWithTotal> = sqlx::query_as(&format!(
+        "SELECT {}, COUNT(*) OVER() AS total_count FROM cards WHERE merchant_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+        CARD_COLS
+    ))
+    .bind(merchant_id)
+    .bind(page_size)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
 
-    // 解密所有卡密代码
+    let total = rows.first().map(|r| r.total_count).unwrap_or(0);
+    let mut cards: Vec<Card> = rows.into_iter().map(|r| Card {
+        id: r.id, app_id: r.app_id, merchant_id: r.merchant_id,
+        code: r.code, duration_days: r.duration_days, max_devices: r.max_devices,
+        status: r.status, note: r.note, created_at: r.created_at,
+        activated_at: r.activated_at, expires_at: r.expires_at,
+    }).collect();
+
     for card in &mut cards {
         match EncryptedFieldsOps::decrypt_card_code(&state.encryptor, &card.code) {
             Ok(plain) => card.code = plain,
@@ -171,14 +155,13 @@ async fn export_cards_csv(
     Extension(claims): Extension<Claims>,
     Query(q): Query<CardQuery>,
 ) -> Result<Response<String>, StatusCode> {
-    let merchant_id = Uuid::parse_str(&claims.sub).unwrap_or_default();
-
-    let mut cards: Vec<Card> = if claims.role == "admin" {
-        sqlx::query_as("SELECT * FROM cards ORDER BY created_at DESC")
-            .fetch_all(&state.pool)
-            .await
-            .unwrap_or_default()
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
     } else {
+        Uuid::parse_str(&claims.sub).unwrap_or_default()
+    };
+
+    let mut cards: Vec<Card> = {
         let mut sql = "SELECT * FROM cards WHERE merchant_id = $1".to_string();
         if q.app_id.is_some() { sql.push_str(" AND app_id = $2"); }
         if q.app_id.is_some() {
@@ -197,19 +180,16 @@ async fn export_cards_csv(
         }
     };
 
-    // 按 status 过滤
     if let Some(ref status) = q.status {
         cards.retain(|c| &c.status == status);
     }
 
-    // 解密所有卡密代码
     for card in &mut cards {
         if let Ok(plain) = EncryptedFieldsOps::decrypt_card_code(&state.encryptor, &card.code) {
             card.code = plain;
         }
     }
 
-    // 构建 CSV
     let mut csv = String::from("卡密代码,有效天数,设备上限,状态,创建时间,激活时间,过期时间,备注\n");
     for c in &cards {
         let status_label = match c.status.as_str() {
@@ -239,7 +219,6 @@ async fn export_cards_csv(
         ));
     }
 
-    // 加 BOM 让 Excel 正确识别 UTF-8
     let bom = "\u{feff}";
     let body = format!("{}{}", bom, csv);
 
@@ -259,22 +238,25 @@ async fn generate_cards(
     Extension(claims): Extension<Claims>,
     Json(body): Json<GenerateCardsRequest>,
 ) -> Json<Value> {
-    let merchant_id = match Uuid::parse_str(&claims.sub) {
-        Ok(id) => id,
-        Err(_) => return Json(json!({"success": false, "message": "无效用户ID"})),
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        match Uuid::parse_str(&claims.sub) {
+            Ok(id) => id,
+            Err(_) => return Json(json!({"success": false, "message": "无效用户ID"})),
+        }
     };
 
     if body.count == 0 || body.count > 1000 {
         return Json(json!({"success": false, "message": "生成数量需在 1-1000 之间"}));
     }
-    if body.duration_days <= 0 {
+    if body.duration_days < 0 {
         return Json(json!({"success": false, "message": "有效天数必须大于0"}));
     }
-    if body.max_devices <= 0 || body.max_devices > 100 {
+    if body.max_devices < 0 {
         return Json(json!({"success": false, "message": "设备数量需在 1-100 之间"}));
     }
 
-    // 非管理员检查套餐限制
     if claims.role != "admin" {
         let plan: (String,) = sqlx::query_as("SELECT plan FROM merchants WHERE id = $1")
             .bind(merchant_id)
@@ -311,7 +293,6 @@ async fn generate_cards(
         }
     }
 
-    // 代理配额校验：若该商户是某上级的代理，检查配额是否足够
     if claims.role != "admin" {
         let rel: Option<(Uuid, i32, i32)> = sqlx::query_as(
             "SELECT id, quota_total, quota_used FROM agent_relations
@@ -334,7 +315,6 @@ async fn generate_cards(
         }
     }
 
-    // 验证 app 归属
     let app_exists: Option<(Uuid,)> = sqlx::query_as(
         "SELECT id FROM apps WHERE id = $1 AND (merchant_id = $2 OR $3 = 'admin') AND status = 'active'",
     )
@@ -349,7 +329,6 @@ async fn generate_cards(
         return Json(json!({"success": false, "message": "应用不存在或已禁用"}));
     }
 
-    // 校验自定义格式参数
     let prefix = body.prefix.as_deref().unwrap_or("KAMI");
     if prefix.len() > 16 || !prefix.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return Json(json!({"success": false, "message": "前缀最长 16 字符，仅限字母、数字、- 和 _"}));
@@ -357,12 +336,10 @@ async fn generate_cards(
     let seg_count = body.segment_count.unwrap_or(4).clamp(1, 8);
     let seg_len   = body.segment_len.unwrap_or(4).clamp(2, 8);
 
-    // 批量生成：先在内存中生成所有 code 并加密
     let codes: Vec<String> = (0..body.count)
         .map(|_| generate_card_code_with_format(Some(prefix), seg_count, seg_len))
         .collect();
-    
-    // 加密所有卡密代码并生成哈希
+
     let mut encrypted_codes = Vec::new();
     for code in &codes {
         let temp_id = Uuid::new_v4();
@@ -374,7 +351,6 @@ async fn generate_cards(
         }
     }
 
-    // 构建 VALUES 占位符：($1,$2,$3,$4,$5,$6,$7), ($8,...) ...
     let mut params_sql = String::new();
     let base = 7usize;
     for i in 0..encrypted_codes.len() {
@@ -401,10 +377,9 @@ async fn generate_cards(
             .bind(body.max_devices)
             .bind(&body.note);
     }
-    
+
     match q.fetch_all(&state.pool).await {
         Ok(inserted_cards) => {
-            // 记录加密日志
             let pool = state.pool.clone();
             let encrypted_codes_clone = encrypted_codes.clone();
             tokio::spawn(async move {
@@ -437,7 +412,11 @@ async fn get_card(
     Extension(claims): Extension<Claims>,
     Path(id): Path<Uuid>,
 ) -> Json<Value> {
-    let merchant_id = Uuid::parse_str(&claims.sub).unwrap_or_default();
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        Uuid::parse_str(&claims.sub).unwrap_or_default()
+    };
     let mut card: Option<Card> = sqlx::query_as(
         "SELECT * FROM cards WHERE id = $1 AND (merchant_id = $2 OR $3 = 'admin')",
     )
@@ -466,7 +445,11 @@ async fn delete_card(
     Extension(claims): Extension<Claims>,
     Path(id): Path<Uuid>,
 ) -> Json<Value> {
-    let merchant_id = Uuid::parse_str(&claims.sub).unwrap_or_default();
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        Uuid::parse_str(&claims.sub).unwrap_or_default()
+    };
     let result = sqlx::query(
         "DELETE FROM cards WHERE id = $1 AND (merchant_id = $2 OR $3 = 'admin') AND status = 'unused'",
     )
@@ -488,9 +471,12 @@ async fn disable_card(
     Extension(claims): Extension<Claims>,
     Path(id): Path<Uuid>,
 ) -> Json<Value> {
-    let merchant_id = Uuid::parse_str(&claims.sub).unwrap_or_default();
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        Uuid::parse_str(&claims.sub).unwrap_or_default()
+    };
     let result = if claims.role == "admin" {
-        // 管理员禁用：打 admin_disabled 标记
         sqlx::query(
             "UPDATE cards SET status = 'disabled', admin_disabled = TRUE WHERE id = $1",
         )
@@ -519,9 +505,12 @@ async fn enable_card(
     Extension(claims): Extension<Claims>,
     Path(id): Path<Uuid>,
 ) -> Json<Value> {
-    let merchant_id = Uuid::parse_str(&claims.sub).unwrap_or_default();
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        Uuid::parse_str(&claims.sub).unwrap_or_default()
+    };
     let result = if claims.role == "admin" {
-        // 管理员启用：同时清除 admin_disabled
         sqlx::query(
             "UPDATE cards SET status = 'unused', admin_disabled = FALSE WHERE id = $1 AND status = 'disabled'",
         )
@@ -529,7 +518,6 @@ async fn enable_card(
         .execute(&state.pool)
         .await
     } else {
-        // 商户：只能启用非管理员禁用的卡密
         sqlx::query(
             "UPDATE cards SET status = 'unused' WHERE id = $1 AND status = 'disabled' AND merchant_id = $2 AND admin_disabled = FALSE",
         )
@@ -546,7 +534,6 @@ async fn enable_card(
     }
 }
 
-/// 批量禁用/启用卡密（单条 SQL ANY，防止大量请求冲击数据库）
 async fn batch_update_card_status(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -558,7 +545,11 @@ async fn batch_update_card_status(
     if body.ids.len() > 500 {
         return Json(json!({"success": false, "message": "单次批量操作最多 500 张"}));
     }
-    let merchant_id = Uuid::parse_str(&claims.sub).unwrap_or_default();
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        Uuid::parse_str(&claims.sub).unwrap_or_default()
+    };
 
     let result = match body.action.as_str() {
         "disabled" => {
@@ -588,7 +579,6 @@ async fn batch_update_card_status(
                 .execute(&state.pool)
                 .await
             } else {
-                // 商户：排除 admin_disabled 的卡密
                 sqlx::query(
                     "UPDATE cards SET status = 'unused' WHERE id = ANY($1) AND status = 'disabled' AND merchant_id = $2 AND admin_disabled = FALSE",
                 )
@@ -610,11 +600,6 @@ async fn batch_update_card_status(
     }
 }
 
-/// 批量延期/缩短卡密有效期
-///
-/// - 对未激活卡密（status = 'unused'）：调整 duration_days，到期时间在激活时计算，无需修改
-/// - 对已激活卡密（status = 'active'）：直接移动 expires_at
-/// - days 为正数延期，负数缩短；缩短后到期时间不能早于当前时间（否则跳过）
 async fn batch_extend_cards(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -629,14 +614,17 @@ async fn batch_extend_cards(
     if body.days == 0 {
         return Json(json!({"success": false, "message": "days 不能为 0"}));
     }
-    let merchant_id = Uuid::parse_str(&claims.sub).unwrap_or_default();
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
+    } else {
+        Uuid::parse_str(&claims.sub).unwrap_or_default()
+    };
     let ownership = if claims.role == "admin" {
         "TRUE".to_string()
     } else {
         format!("merchant_id = '{}'", merchant_id)
     };
 
-    // 未激活卡密：只改 duration_days
     let sql_unused = format!(
         "UPDATE cards SET duration_days = GREATEST(1, duration_days + $1)
          WHERE id = ANY($2) AND status = 'unused' AND {}",
@@ -649,7 +637,6 @@ async fn batch_extend_cards(
         .await
         .unwrap_or_default();
 
-    // 已激活卡密：移动 expires_at，缩短时不能早于 NOW()
     let sql_active = format!(
         "UPDATE cards
          SET expires_at = GREATEST(NOW(), expires_at + ($1 || ' days')::INTERVAL)
@@ -673,17 +660,16 @@ async fn batch_extend_cards(
     }))
 }
 
-/// 按设备数 + 有效天数分组统计
 async fn card_group_stats(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Json<Value> {
-    let merchant_id = Uuid::parse_str(&claims.sub).unwrap_or_default();
-    let where_clause = if claims.role == "admin" {
-        "TRUE".to_string()
+    let merchant_id = if claims.role == "admin" {
+        get_admin_merchant_id(&state.pool).await
     } else {
-        format!("merchant_id = '{}'", merchant_id)
+        Uuid::parse_str(&claims.sub).unwrap_or_default()
     };
+    let where_clause = format!("merchant_id = '{}'", merchant_id);
 
     let sql = format!(
         "SELECT
