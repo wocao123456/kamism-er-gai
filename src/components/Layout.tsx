@@ -12,6 +12,7 @@ import { useWs } from '../hooks/useWs';
 import { useWsEventStore } from '../stores/wsEvent';
 
 interface NavItem {
+  hideForAdmin?: boolean;
   label: string;
   path: string;
   icon: React.ReactNode;
@@ -32,7 +33,7 @@ const merchantNav: NavItem[] = [
   { label: '激活记录', path: '/activations', icon: <Activity size={16} /> },
   { label: '消息中心', path: '/messages', icon: <Bell size={16} /> },
   { label: '风控管理', path: '/blacklist', icon: <ShieldAlert size={16} /> },
-  { label: '代理管理', path: '/agents',    icon: <Network size={16} /> },
+  { label: '代理管理', path: '/agents',    icon: <Network size={16} />, hideForAdmin: true },
   { label: 'API 文档',  path: '/api-docs',  icon: <BookOpen size={16} /> },
   { label: '账号设置', path: '/settings', icon: <Settings size={16} /> },
 ];
@@ -88,7 +89,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   };
 
   const navItems: NavItem[] = role === 'admin'
-    ? [...adminNav, { label: '── 商户功能 ──', path: '', icon: <span /> }, ...merchantNav]
+    ? [...adminNav, { label: '── 商户功能 ──', path: '' }, ...merchantNav.filter(n => !n.hideForAdmin)]
     : merchantNav;
 
   const handleLogout = () => {
@@ -123,6 +124,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       <nav style={{ flex: 1, padding: '0 12px', overflowY: 'auto' }}>
         {navItems.map((item) => {
+          if (item.hideForAdmin && role === 'admin') return null;
           if (!item.path) return (
             <div key={item.label} style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', padding: '12px 12px 4px', textTransform: 'uppercase', letterSpacing: '1px' }}>
               {item.label}
