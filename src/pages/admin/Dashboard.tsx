@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { adminApi, healthApi } from '../../lib/api';
-import { Users, Key, Activity, Package, TrendingUp, Database, Server, Rabbit, ScrollText } from 'lucide-react';
+import { Users, Key, Activity, Package, TrendingUp, Database, Server, Rabbit, ScrollText,
+  LogIn, LogOut, PlusCircle, MinusCircle, Edit3, Trash2, Shield, RefreshCw, Settings, Send,
+  CreditCard, Smartphone, Mail, AlertTriangle, FileText, Eye, Link2, Unlink, Lock } from 'lucide-react';
 
 interface Stats {
   merchants: number;
@@ -23,6 +25,47 @@ function formatUptime(secs: number): string {
   if (secs < 3600) return `${Math.floor(secs / 60)} 分钟`;
   if (secs < 86400) return `${Math.floor(secs / 3600)} 小时 ${Math.floor((secs % 3600) / 60)} 分钟`;
   return `${Math.floor(secs / 86400)} 天 ${Math.floor((secs % 86400) / 3600)} 小时`;
+}
+
+
+function getActionIcon(action: string) {
+  const iconStyle = { width: 14, height: 14 };
+  switch (action) {
+    case 'login': return <LogIn style={{...iconStyle, color: '#10b981'}} />;
+    case 'logout': return <LogOut style={{...iconStyle, color: '#f59e0b'}} />;
+    case 'register': return <PlusCircle style={{...iconStyle, color: '#10b981'}} />;
+    case 'create': return <PlusCircle style={{...iconStyle, color: '#3b82f6'}} />;
+    case 'update': return <Edit3 style={{...iconStyle, color: '#f59e0b'}} />;
+    case 'delete': return <Trash2 style={{...iconStyle, color: '#ef4444'}} />;
+    case 'add': return <PlusCircle style={{...iconStyle, color: '#3b82f6'}} />;
+    case 'remove': return <MinusCircle style={{...iconStyle, color: '#ef4444'}} />;
+    case 'send': return <Send style={{...iconStyle, color: '#8b5cf6'}} />;
+    case 'activate': return <Smartphone style={{...iconStyle, color: '#10b981'}} />;
+    case 'verify': return <Shield style={{...iconStyle, color: '#06b6d4'}} />;
+    case 'unbind': return <Unlink style={{...iconStyle, color: '#f59e0b'}} />;
+    case 'heartbeat': return <Activity style={{...iconStyle, color: '#6366f1'}} />;
+    case 'sign': return <FileText style={{...iconStyle, color: '#8b5cf6'}} />;
+    case 'encrypt': return <Lock style={{...iconStyle, color: '#06b6d4'}} />;
+    case 'decrypt': return <Lock style={{...iconStyle, color: '#10b981'}} />;
+    case 'change_password': return <Lock style={{...iconStyle, color: '#ef4444'}} />;
+    case 'update_profile': return <Settings style={{...iconStyle, color: '#6b7280'}} />;
+    case 'regenerate': return <RefreshCw style={{...iconStyle, color: '#8b5cf6'}} />;
+    case 'update_plan': return <CreditCard style={{...iconStyle, color: '#f59e0b'}} />;
+    case 'update_status': return <AlertTriangle style={{...iconStyle, color: '#ef4444'}} />;
+    default: return <Eye style={{...iconStyle, color: '#6b7280'}} />;
+  }
+}
+
+function getActionLabel(action: string) {
+  const labels: Record<string, string> = {
+    login: '登录', logout: '退出登录', register: '注册', create: '新建', update: '修改',
+    delete: '删除', add: '添加', remove: '移除', send: '发送', activate: '激活',
+    verify: '验证', unbind: '解绑', heartbeat: '心跳', sign: '签名', encrypt: '加密',
+    decrypt: '解密', change_password: '修改密码', update_profile: '修改信息',
+    regenerate: '重新生成', update_plan: '修改套餐', update_status: '修改状态',
+    other: '其他操作',
+  };
+  return labels[action] || action;
 }
 
 export default function AdminDashboard() {
