@@ -17,6 +17,7 @@ use tower_http::compression::CompressionLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use axum::middleware as axum_middleware;
 use crate::middleware::auth::AppState;
+use crate::middleware::op_log::op_log_middleware;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[cfg(feature = "desktop")]
@@ -188,6 +189,7 @@ pub async fn start_server() -> anyhow::Result<()> {
         .merge(routes::agent::agent_router(state.clone()))
         .nest("/api/keys", routes::api_keys::api_keys_router(state.clone()))
         .nest("/api/ts", routes::api_ts::api_ts_router(state.clone()))
+        .layer(axum_middleware::from_fn_with_state(state.clone(), op_log_middleware))
         .layer(axum_middleware::from_fn(middleware::security::security_headers))
         .layer(CompressionLayer::new())
         .layer(RequestBodyLimitLayer::new(2 * 1024 * 1024))

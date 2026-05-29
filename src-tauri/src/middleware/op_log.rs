@@ -16,6 +16,7 @@ pub async fn op_log_middleware(
 ) -> Response {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+    println!("[OP_LOG] Intercepted {} {}", method, path);
 
     let claims = req
         .headers()
@@ -35,7 +36,9 @@ pub async fn op_log_middleware(
         let user_id = claims.as_ref().and_then(|c| Uuid::parse_str(&c.sub).ok());
         let pool = state.pool.clone();
         tokio::spawn(async move {
+            println!("[OP_LOG] Writing: action={} module={} detail={} user_id={:?}", action, module, detail, user_id);
             log_operation(&pool, user_type, user_id, &action, &module, &detail, "").await;
+            println!("[OP_LOG] Write done");
         });
     }
     response
