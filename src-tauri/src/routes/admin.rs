@@ -208,7 +208,7 @@ async fn op_logs(State(state):State<AppState>,Query(q):Query<OpLogQuery>)->Json<
         "SELECT id,user_type,user_id,action,COALESCE(module,''),detail,ip_address,created_at FROM operation_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2"
     ).bind(ps).bind(offset).fetch_all(&state.pool).await.unwrap_or_default();
     let list:Vec<Value>=rows.into_iter().map(|(id,ut,uid,action,module,detail,ip,created)|json!({
-        "id":id,"type":ut,"user_id":uid,"action":action,"module":module,"detail":detail,
+        "id":id,"user_type":ut,"user_id":uid,"action":action,"module":module,"detail":detail,
         "ip":ip,"created_at":created
     })).collect();
     Json(json!({"success":true,"data":list,"total":total.0,"page":page,"page_size":ps}))
