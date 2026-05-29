@@ -288,37 +288,35 @@ fn tp_label(tp: &str) -> &str {
 // ── 分类模块 ──
 
 fn classify_module(path: &str) -> String {
-    let m = if path.contains("/auth") { "认证" }
-    else if path.contains("/admin/merchants") { "商户管理" }
-    else if path.contains("/admin/blacklist") { "黑名单管理" }
-    else if path.contains("/admin/whitelist") { "白名单管理" }
-    else if path.contains("/admin/messages") { "消息管理" }
-    else if path.contains("/admin/plan") { "套餐配置" }
-    else if path.contains("/admin/alerts") { "异常告警" }
-    else if path.contains("/admin/risk") { "风控设置" }
-    else if path.contains("/admin/op-logs") { "操作日志" }
-    else if path.contains("/admin") { "管理员" }
-    else if path.contains("/merchant/change-password") { "修改密码" }
-    else if path.contains("/merchant/regenerate") { "API管理" }
-    else if path.contains("/merchant/profile") { "账号设置" }
-    else if path.contains("/merchant/op-logs") { "操作日志" }
-    else if path.contains("/merchant") { "商户" }
-    else if path.contains("/apps") { "应用管理" }
-    else if path.contains("/cards") { "卡密管理" }
-    else if path.contains("/keys") { "API管理" }
-    else if path.contains("/blacklist") { "风控管理" }
-    else if path.contains("/whitelist") { "风控管理" }
-    else if path.contains("/messages") { "消息中心" }
-    else if path.contains("/activations") { "激活记录" }
-    else if path.contains("/v1/activate") { "接口-激活" }
-    else if path.contains("/v1/verify") { "接口-验证" }
-    else if path.contains("/v1/unbind") { "接口-解绑" }
-    else if path.contains("/v1/heartbeat") { "接口-心跳" }
-    else if path.contains("/ts/sign") { "接口-签名" }
-    else if path.contains("/ts/encrypt") { "接口-加密" }
-    else if path.contains("/ts/decrypt") { "接口-解密" }
-    else if path.contains("/frontend-log") { "前端操作" }
-    else { "其他" }
-};
-    m.to_string()
+    if path.contains("/auth") { return "认证".into(); }
+    if path.contains("/admin/merchants") { return "商户管理".into(); }
+    if path.contains("/admin/blacklist") { return "黑名单管理".into(); }
+    if path.contains("/admin/whitelist") { return "白名单管理".into(); }
+    if path.contains("/admin/messages") { return "消息管理".into(); }
+    if path.contains("/admin/plan") { return "套餐配置".into(); }
+    if path.contains("/admin/alerts") { return "异常告警".into(); }
+    if path.contains("/admin/risk") { return "风控设置".into(); }
+    if path.contains("/admin/op-logs") { return "操作日志".into(); }
+    if path.contains("/admin") { return "管理员".into(); }
+    if path.contains("/merchant/change-password") { return "修改密码".into(); }
+    if path.contains("/merchant/regenerate") { return "API管理".into(); }
+    if path.contains("/merchant/profile") { return "账号设置".into(); }
+    if path.contains("/merchant/op-logs") { return "操作日志".into(); }
+    if path.contains("/merchant") { return "商户".into(); }
+    if path.contains("/apps") { return "应用管理".into(); }
+    if path.contains("/cards") { return "卡密管理".into(); }
+    if path.contains("/keys") { return "API管理".into(); }
+    if path.contains("/blacklist") { return "风控管理".into(); }
+    if path.contains("/whitelist") { return "风控管理".into(); }
+    if path.contains("/messages") { return "消息中心".into(); }
+    if path.contains("/activations") { return "激活记录".into(); }
+    if path.contains("/v1/activate") { return "接口-激活".into(); }
+    if path.contains("/v1/verify") { return "接口-验证".into(); }
+    if path.contains("/v1/unbind") { return "接口-解绑".into(); }
+    if path.contains("/v1/heartbeat") { return "接口-心跳".into(); }
+    if path.contains("/ts/sign") { return "接口-签名".into(); }
+    if path.contains("/ts/encrypt") { return "接口-加密".into(); }
+    if path.contains("/ts/decrypt") { return "接口-解密".into(); }
+    if path.contains("/frontend-log") { return "前端操作".into(); }
+    "其他".into()
 }
