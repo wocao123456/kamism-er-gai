@@ -12,9 +12,15 @@ const API_RESPONSIVE_CSS = `
   .api-docs-sidebar {
     min-width: 100% !important;
     max-width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 16px !important;
   }
   .api-docs-main {
     min-width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 16px !important;
   }
   .api-docs-row {
     flex-direction: column !important;
@@ -37,7 +43,7 @@ const API_RESPONSIVE_CSS = `
     word-break: break-all !important;
   }
 }
-`;
+`
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:9527';
 
