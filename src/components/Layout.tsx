@@ -89,7 +89,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   };
 
   const navItems: NavItem[] = role === 'admin'
-    ? [...adminNav, { label: '── 商户功能 ──', path: '' }, ...merchantNav.filter(n => !n.hideForAdmin)]
+    ? [...adminNav, { label: '── 商户功能 ──', path: '', icon: <span /> }, ...merchantNav.filter(n => !n.hideForAdmin)]
     : merchantNav;
 
   const handleLogout = () => {
