@@ -21,6 +21,9 @@ pub struct ChangePasswordRequest {
 }
 
 #[derive(Deserialize)]
+pub struct MerchantOpLogQuery { pub page: Option<i64>, pub page_size: Option<i64> }
+
+#[derive(Deserialize)]
 pub struct DashboardQuery {
     pub range: Option<String>,
 }
@@ -31,6 +34,7 @@ pub fn merchant_router(state: AppState) -> Router<AppState> {
         .route("/merchant/dashboard-stats", get(dashboard_stats))
         .route("/merchant/change-password", post(change_password))
         .route("/merchant/regenerate-apikey", post(regenerate_api_key))
+        .route("/merchant/op-logs", get(merchant_op_logs))
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
 
@@ -199,4 +203,24 @@ async fn regenerate_api_key(
     .await;
 
     Json(json!({"success": true, "data": {"api_key": new_key}}))
+}
+
+async fn merchant_op_logs(State(state): State<AppState>, Extension(claims): Extension<Claims>, Query(q): Query<MerchantOpLogQuery>) -> Json<Value> {
+    let uid = match Uuid::parse_str(&claims.sub) {
+        Ok(id) => id,
+        Err(_) => return Json(json!({"success": false, "message": "无效用户ID"})),
+    };
+    let page = q.page.unwrap_or(1).max(1);
+    let ps = q.page_size.unwrap_or(15).min(50);
+    let offset = (page - 1) * ps;
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM operation_logs WHERE user_id = $1")
+        .bind(uid).fetch_one(&state.pool).await.unwrap_or((0,));
+    let rows: Vec<(Uuid, String, String, Option<String>, Option<String>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT id, action, COALESCE(module,'') as module, detail, ip_address, created_at FROM operation_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3"
+    ).bind(uid).bind(ps).bind(offset).fetch_all(&state.pool).await.unwrap_or_default();
+    let list: Vec<Value> = rows.into_iter().map(|(id, action, module, detail, ip, created)| json!({
+        "id": id, "action": action, "module": module, "detail": detail.unwrap_or_default(),
+        "ip": ip.unwrap_or_default(), "created_at": created
+    })).collect();
+    Json(json!({"success": true, "data": list, "total": total.0, "page": page, "page_size": ps}))
 }

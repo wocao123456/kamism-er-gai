@@ -224,7 +224,7 @@ export default function ApiDocs() {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gap: 16 }}>
+      <div style={{ display: 'flex', gap: 16 }}>
         {/* 接口概览 */}
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
@@ -257,14 +257,14 @@ export default function ApiDocs() {
           )}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', gap: 16 }}>
           {/* 请求头 */}
           <div className="card">
             <p style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 12, fontSize: 13 }}>请求头</p>
-            <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
               {ep.headers.map((h) => (
                 <div key={h.key} style={{
-                  display: 'grid', gridTemplateColumns: 'auto 1fr',
+                  display: 'flex', gridTemplateColumns: 'auto 1fr',
                   gap: '4px 12px', alignItems: 'start',
                   padding: '8px 0', borderBottom: '1px solid var(--border)',
                 }}>
@@ -293,7 +293,7 @@ export default function ApiDocs() {
         {/* 代码示例 */}
         <div className="card">
           <p style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 16, fontSize: 13 }}>代码示例</p>
-          <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 12 }}>
             <div>
               <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>cURL</p>
               <CodeBlock code={curl} lang="bash" />

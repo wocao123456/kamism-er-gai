@@ -26,7 +26,7 @@ const adminNav: NavItem[] = [
 ];
 
 const merchantNav: NavItem[] = [
-  { label: '总览', path: '/dashboard', icon: <LayoutDashboard size={16} /> },
+  { label: '总览', path: '/dashboard', icon: <LayoutDashboard size={16} />, hideForAdmin: true },
   { label: '我的应用', path: '/apps', icon: <Package size={16} /> },
   { label: '卡密管理', path: '/cards', icon: <Key size={16} /> },
   { label: '激活记录', path: '/activations', icon: <Activity size={16} /> },

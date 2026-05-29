@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { adminApi, healthApi } from '../../lib/api';
-import { Users, Key, Activity, Package, TrendingUp, Database, Server, GitBranch } from 'lucide-react';
+import { Users, Key, Activity, Package, TrendingUp, Database, Server, GitBranch, ScrollText } from 'lucide-react';
 
 interface Stats {
   merchants: number;
@@ -30,12 +30,15 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
+  const [opLogs, setOpLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
 
   useEffect(() => {
     adminApi.getStats().then(res => {
       if (res.data.success) setStats(res.data.data);
     }).catch(() => {}).finally(() => setLoading(false));
 
+    fetch('/api/admin/op-logs?page=1&page_size=15',{headers:{Authorization:'Bearer '+JSON.parse(localStorage.getItem('kamism-auth')||'{}')?.state?.token||''}}).then(r=>r.json()).then(d=>{if(d.success)setOpLogs(d.data||[]);}).catch(()=>{}).finally(()=>setLogsLoading(false));
     healthApi.check().then(res => {
       setHealth(res.data);
     }).catch(() => {
@@ -44,11 +47,11 @@ export default function AdminDashboard() {
   }, []);
 
   const statCards = [
-    { label: '注册商户', value: stats?.merchants ?? '—', icon: <Users size={18} />, color: '#7c6af7' },
-    { label: '应用总数', value: stats?.total_apps ?? '—', icon: <Package size={18} />, color: '#34d399' },
-    { label: '卡密总数', value: stats?.total_cards ?? '—', icon: <Key size={18} />, color: '#fbbf24' },
-    { label: '活跃卡密', value: stats?.active_cards ?? '—', icon: <TrendingUp size={18} />, color: '#60a5fa' },
-    { label: '激活次数', value: stats?.total_activations ?? '—', icon: <Activity size={18} />, color: '#f472b6' },
+    { label: '注册商户', value: stats?.merchants ?? '—', icon: <Users size={18} />, color: '#7c6af7', breathing: true },
+    { label: '应用总数', value: stats?.total_apps ?? '—', icon: <Package size={18} />, color: '#34d399', breathing: true },
+    { label: '卡密总数', value: stats?.total_cards ?? '—', icon: <Key size={18} />, color: '#fbbf24', breathing: true },
+    { label: '活跃卡密', value: stats?.active_cards ?? '—', icon: <TrendingUp size={18} />, color: '#60a5fa', breathing: true },
+    { label: '激活次数', value: stats?.total_activations ?? '—', icon: <Activity size={18} />, color: '#f472b6', breathing: true },
   ];
 
   const depItems = [

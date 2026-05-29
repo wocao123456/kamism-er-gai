@@ -1,12 +1,15 @@
 use axum::{
     extract::{Path, State, Query},
+    middleware,
     Json, Router,
     http::StatusCode,
     routing::{get, post, put},
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::middleware::auth::AppState;
+use crate::middleware::auth::{AppState, auth_middleware};
+use crate::utils::jwt::Claims;
+use axum::extract::Extension;
 
 pub fn api_keys_router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -15,6 +18,7 @@ pub fn api_keys_router(state: AppState) -> Router<AppState> {
         .route("/:id/toggle", post(toggle))
         .route("/:id/stats", get(key_stats))
         .route("/:id/device-logs", get(device_logs))
+        .route_layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .with_state(state)
 }
 
@@ -82,20 +86,24 @@ fn err(msg: &str) -> Json<ApiResponse> {
 
 async fn list(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<ApiResponse>, StatusCode> {
+    let uid = Uuid::parse_str(&claims.sub).unwrap_or_default();
     let rows: Vec<(serde_json::Value,)> = sqlx::query_as(
-        "SELECT row_to_json(t) FROM (SELECT id, name, encrypt_code, sign_code, join_template, request_method, request_base_url, request_success_check, status, params_template, response_template, encrypt_enabled, encrypt_algorithm, encrypt_mode, encrypt_padding, encrypt_key, encrypt_iv_source, encrypt_param_name, encrypt_encoding, encrypt_charset,decrypt_code, created_at, updated_at FROM api_keys ORDER BY created_at DESC) t"
-    ).fetch_all(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        "SELECT row_to_json(t) FROM (SELECT id, name, encrypt_code, sign_code, join_template, request_method, request_base_url, request_success_check, status, params_template, response_template, encrypt_enabled, encrypt_algorithm, encrypt_mode, encrypt_padding, encrypt_key, encrypt_iv_source, encrypt_param_name, encrypt_encoding, encrypt_charset,decrypt_code, created_at, updated_at FROM api_keys WHERE merchant_id = $1 ORDER BY created_at DESC) t"
+    ).bind(uid).fetch_all(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let data: Vec<serde_json::Value> = rows.into_iter().map(|r| r.0).collect();
     Ok(ok(serde_json::json!(data)))
 }
 
 async fn create(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(form): Json<ApiKeyForm>,
 ) -> Result<Json<ApiResponse>, StatusCode> {
     let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO api_keys (id,name,encrypt_code,sign_code,join_template,request_method,request_base_url,request_success_check,status,params_template,response_template,encrypt_enabled,encrypt_algorithm,encrypt_mode,encrypt_padding,encrypt_key,encrypt_iv_source,encrypt_param_name,encrypt_encoding,encrypt_charset,decrypt_code) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)")
+    let uid = Uuid::parse_str(&claims.sub).unwrap_or_default();
+    sqlx::query("INSERT INTO api_keys (id,merchant_id,name,encrypt_code,sign_code,join_template,request_method,request_base_url,request_success_check,status,params_template,response_template,encrypt_enabled,encrypt_algorithm,encrypt_mode,encrypt_padding,encrypt_key,encrypt_iv_source,encrypt_param_name,encrypt_encoding,encrypt_charset,decrypt_code) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)")
         .bind(id).bind(&form.name).bind(&form.encrypt_code).bind(&form.sign_code).bind(&form.join_template)
         .bind(&form.request_method).bind(&form.request_base_url).bind(&form.request_success_check)
         .bind(form.status.as_deref().unwrap_or("active"))

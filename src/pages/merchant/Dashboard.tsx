@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { merchantApi, activationsApi } from '../../lib/api';
-import { Key, Activity, Package, Monitor, Globe } from 'lucide-react';
+import { Key, Activity, Package, Monitor, Globe, ScrollText } from 'lucide-react';
 import {
   ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -34,6 +34,8 @@ export default function MerchantDashboard() {
   const [ipPage, setIpPage] = useState(1);
   const [ipPageSize] = useState(10);
   const { theme } = useThemeStore();
+  const [opLogs, setOpLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
 
   const axisColor = theme === 'dark' ? '#55556a' : '#8888a0';
   const gridColor = theme === 'dark' ? '#1e1e2e' : '#dddde8';
@@ -43,6 +45,7 @@ export default function MerchantDashboard() {
 
   useEffect(() => {
     setLoading(true);
+    fetch('/api/merchant/op-logs?page=1&page_size=15',{headers:{Authorization:'Bearer '+JSON.parse(localStorage.getItem('kamism-auth')||'{}')?.state?.token||''}}).then(r=>r.json()).then(d=>{if(d.success)setOpLogs(d.data||[]);}).catch(()=>{}).finally(()=>setLogsLoading(false));
     Promise.all([
       merchantApi.dashboardStats(range),
       activationsApi.list({ page: 1, page_size: 500 })
@@ -84,11 +87,11 @@ export default function MerchantDashboard() {
   const grandTotal = stats.ip_stats.reduce((s, ip) => s + ip.activate_count, 0);
 
   const summaryCards = [
-    { label: '卡密总数', value: totalCards, icon: <Key size={18} />, color: 'var(--accent)' },
-    { label: '使用中', value: activeCards, icon: <Activity size={18} />, color: 'var(--success)' },
-    { label: '近30天激活', value: totalActivations, icon: <Monitor size={18} />, color: '#f472b6' },
-    { label: '绑定设备', value: totalDevices, icon: <Package size={18} />, color: 'var(--warning)' },
-    { label: '卡密IP访问', value: grandTotal, icon: <Globe size={18} />, color: '#60a5fa' },
+    { label: '卡密总数', value: totalCards, icon: <Key size={18} />, color: 'var(--accent)', breathing: true },
+    { label: '使用中', value: activeCards, icon: <Activity size={18} />, color: 'var(--success)', breathing: true },
+    { label: '近30天激活', value: totalActivations, icon: <Monitor size={18} />, color: '#f472b6', breathing: true },
+    { label: '绑定设备', value: totalDevices, icon: <Package size={18} />, color: 'var(--warning)', breathing: true },
+    { label: '卡密IP访问', value: grandTotal, icon: <Globe size={18} />, color: '#60a5fa', breathing: true },
   ];
 
   const tooltipStyle = { background: tooltipBg, border: `1px solid ${tooltipBorder}`, borderRadius: 8, color: tooltipText, fontSize: 12 };
@@ -111,6 +114,28 @@ export default function MerchantDashboard() {
             <div className="stat-value" style={{ color: card.color }}>{card.value}</div>
           </div>
         ))}
+      </div>
+
+
+      <div className='stat-card'>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+          <ScrollText size={18} className='text-accent' style={{ marginRight: 8 }} />
+          <h3 style={{ margin: 0, fontSize: 16 }}>操作日志</h3>
+        </div>
+        {logsLoading ? (
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>加载中...</div>
+        ) : opLogs.length === 0 ? (
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>暂无操作记录</div>
+        ) : (
+          <div style={{ maxHeight: 200, overflow: 'auto' }}>
+            {opLogs.map((log: any, idx: number) => (
+              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+                <span>{log.action} - {log.module}</span>
+                <span style={{ color: 'var(--text-muted)' }}>{new Date(log.created_at).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {loading ? <div style={{ textAlign: 'center', padding: 60 }}><span className="spinner" /></div> : (

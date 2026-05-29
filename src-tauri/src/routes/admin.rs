@@ -195,13 +195,13 @@ async fn rate_stats(State(state):State<AppState>)->Json<Value>{
 
 async fn op_logs(State(state):State<AppState>,Query(q):Query<OpLogQuery>)->Json<Value>{
     let page=q.page.unwrap_or(1).max(1);let ps=q.page_size.unwrap_or(10).min(50);let offset=(page-1)*ps;
-    let total:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM activation_alerts").fetch_one(&state.pool).await.unwrap_or((0,));
-    let rows:Vec<(Uuid,String,Option<String>,Option<String>,Option<String>,chrono::DateTime<chrono::Utc>)>=sqlx::query_as(
-        "SELECT id,alert_type,device_hint,ip_address,detail,created_at FROM activation_alerts ORDER BY created_at DESC LIMIT $1 OFFSET $2"
+    let total:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM operation_logs").fetch_one(&state.pool).await.unwrap_or((0,));
+    let rows:Vec<(Uuid,String,Option<Uuid>,String,String,Option<String>,Option<String>,chrono::DateTime<chrono::Utc>)>=sqlx::query_as(
+        "SELECT id,user_type,user_id,action,COALESCE(module,''),detail,ip_address,created_at FROM operation_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2"
     ).bind(ps).bind(offset).fetch_all(&state.pool).await.unwrap_or_default();
-    let list:Vec<Value>=rows.into_iter().map(|(id,tp,dh,ip,detail,created)|json!({
-        "id":id,"type":tp,"account":"system","action":tp,"detail":detail,
-        "device":dh,"ip":ip,"created_at":created
+    let list:Vec<Value>=rows.into_iter().map(|(id,ut,uid,action,module,detail,ip,created)|json!({
+        "id":id,"type":ut,"user_id":uid,"action":action,"module":module,"detail":detail,
+        "ip":ip,"created_at":created
     })).collect();
     Json(json!({"success":true,"data":list,"total":total.0,"page":page,"page_size":ps}))
 }

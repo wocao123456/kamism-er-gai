@@ -9,10 +9,18 @@ interface ThemeStore {
   setTheme: (t: Theme) => void;
 }
 
+function getInitialTheme(): Theme {
+  try {
+    const raw = localStorage.getItem('kamism-theme');
+    if (raw) { const p = JSON.parse(raw); if (p?.state?.theme) return p.state.theme; }
+  } catch {}
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 export const useThemeStore = create<ThemeStore>()(
   persist(
     (set, get) => ({
-      theme: 'dark',
+      theme: getInitialTheme(),
       toggle: () => {
         const next = get().theme === 'dark' ? 'light' : 'dark';
         set({ theme: next });
@@ -23,14 +31,16 @@ export const useThemeStore = create<ThemeStore>()(
         document.documentElement.setAttribute('data-theme', t);
       },
     }),
-    { name: 'kamism-theme' }
+    {
+      name: 'kamism-theme',
+      onRehydrateStorage: () => (state) => {
+        if (state) document.documentElement.setAttribute('data-theme', state.theme);
+      },
+    }
   )
 );
 
-/** 应用启动时同步主题到 <html data-theme> */
 export function applyStoredTheme() {
-  const raw = localStorage.getItem('kamism-theme');
-  const theme: Theme = raw ? (JSON.parse(raw)?.state?.theme ?? 'dark') : 'dark';
+  const theme = getInitialTheme();
   document.documentElement.setAttribute('data-theme', theme);
 }
-

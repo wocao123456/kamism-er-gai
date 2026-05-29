@@ -16,6 +16,7 @@ const Merchants         = lazy(() => import('./pages/admin/Merchants'));
 const PlanConfigs       = lazy(() => import('./pages/admin/PlanConfigs'));
 const AdminMessages     = lazy(() => import('./pages/admin/Messages'));
 const ApiManage         = lazy(() => import('./pages/admin/ApiManage'));
+const MerchantApiManage = lazy(() => import('./pages/admin/ApiManage'));
 const MerchantDashboard = lazy(() => import('./pages/merchant/Dashboard'));
 const Apps              = lazy(() => import('./pages/merchant/Apps'));
 const Cards             = lazy(() => import('./pages/merchant/Cards'));
@@ -76,6 +77,7 @@ function AppRoutes() {
           <Route path="/admin/merchants"    element={<RequireAuth role="admin"><Layout><Merchants         key={pageKey} /></Layout></RequireAuth>} />
           <Route path="/admin/plan-configs" element={<RequireAuth role="admin"><Layout><PlanConfigs       key={pageKey} /></Layout></RequireAuth>} />
           <Route path="/admin/api-manage"   element={<RequireAuth role="admin"><Layout><ApiManage         key={pageKey} /></Layout></RequireAuth>} />
+          <Route path="/api-manage"           element={<RequireAuth role={["admin","merchant"]}><Layout><MerchantApiManage key={pageKey} /></Layout></RequireAuth>} />
           <Route path="/admin/messages"     element={<RequireAuth role="admin"><Layout><AdminMessages     key={pageKey} /></Layout></RequireAuth>} />
 
           <Route path="/dashboard"   element={<RequireAuth role={["admin","merchant"]}><Layout><MerchantDashboard key={pageKey} /></Layout></RequireAuth>} />

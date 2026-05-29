@@ -460,3 +460,19 @@ tbody tr:hover { background: var(--bg-hover); }
 @media (min-width: 1280px) {
   .stats-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 }
+
+/* Card top line breathing glow */
+@keyframes card-breathe {
+  0%, 100% { opacity: 0.45; box-shadow: none; }
+  50% { opacity: 1; box-shadow: 0 0 8px 2px var(--card-color, var(--accent)); }
+}
+.stat-card-breathing::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--card-color, var(--accent));
+  border-radius: 12px 12px 0 0;
+  opacity: 0.45;
+  animation: card-breathe 3s ease-in-out infinite;
+}
