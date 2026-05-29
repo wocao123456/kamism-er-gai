@@ -2,6 +2,14 @@ import { useState, useEffect, useCallback, Fragment } from 'react';
 import { Plus, Settings, Trash2, RefreshCw, TestTube, Lock, Unlock, ChevronDown, ChevronRight, Clock, Key, Search, X } from 'lucide-react';
 const API_BASE = window.location.origin;
 
+
+const getAuthHeaders = (): Record<string, string> => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    return { Authorization: `Bearer ${token}` };
+  }
+  return {};
+};
 const maskMiddle = (s: string) => {
   if (!s || s.length < 35) return s;
   const head = s.slice(0, 10);
@@ -47,7 +55,7 @@ export default function ApiManage() {
     } catch (e) {}
   }, []);
 
-  const fetchKeys = useCallback(async () => { setLoading(true); try { const r = await fetch(`${API_BASE}/api/keys`); const d = await r.json(); setKeys(d.data || []); } catch (e) {} setLoading(false); }, []);
+  const fetchKeys = useCallback(async () => { setLoading(true); try { const r = await fetch(`${API_BASE}/api/keys`, { headers: getAuthHeaders() }); const d = await r.json(); setKeys(d.data || []); } catch (e) {} setLoading(false); }, []);
 
   const fetchRecentLogs = useCallback(async (cardFilter?: string) => {
     try {
@@ -72,11 +80,11 @@ export default function ApiManage() {
   useEffect(() => { fetchKeys(); fetchRecentLogs(); const c = localStorage.getItem('cached_auth_key'); const e = parseInt(localStorage.getItem('cached_auth_expiry')||'0'); if (c && e > Date.now()) { setAuthKey(c); setAuthExpiresAt(e); setAuthStatus('idle'); } else { fetchAuthKey(); } const t = setInterval(() => fetchRecentLogs(), 30000); return () => clearInterval(t); }, []);
   useEffect(() => { const t = setInterval(() => { if (authExpiresAt > 0 && Date.now() > authExpiresAt) { setAuthStatus('expired'); fetchAuthKey(); } }, 5000); return () => clearInterval(t); }, [authExpiresAt, authStatus]);
 
-  const deleteKey = async (id: string) => { if (!confirm('确定删除？')) return; await fetch(`${API_BASE}/api/keys/${id}`, { method: 'DELETE' }); fetchKeys(); };
-  const toggleKey = async (id: string) => { await fetch(`${API_BASE}/api/keys/${id}/toggle`, { method: 'POST' }); fetchKeys(); };
+  const deleteKey = async (id: string) => { if (!confirm('确定删除？')) return; await fetch(`${API_BASE}/api/keys/${id}`, { method: 'DELETE', headers: getAuthHeaders() }); fetchKeys(); };
+  const toggleKey = async (id: string) => { await fetch(`${API_BASE}/api/keys/${id}/toggle`, { method: 'POST', headers: getAuthHeaders() }); fetchKeys(); };
   const openEdit = (k: any) => { setForm({ ...k, encrypt_code: k.encrypt_code||'', decrypt_code: k.decrypt_code||'', sign_code: k.sign_code||'', params_template: k.params_template||'', response_template: k.response_template||'', join_template: k.join_template||'' }); setShowAdd(true); };
   const openAdd = () => { setForm({ name: '', encrypt_code: '', decrypt_code: '', sign_code: '', join_template: '', status: 'active', params_template: '', response_template: '' }); setShowAdd(true); };
-  const saveKey = async () => { if (!form) return; const m = form.id ? 'PUT' : 'POST'; const u = form.id ? `${API_BASE}/api/keys/${form.id}` : `${API_BASE}/api/keys`; const p = { name: form.name||'', encrypt_code: form.encrypt_code||'', decrypt_code: form.decrypt_code||'', sign_code: form.sign_code||'', join_template: form.join_template||'', status: form.status||'active', params_template: form.params_template||'', response_template: form.response_template||'' }; await fetch(u, { method: m, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) }); setShowAdd(false); fetchKeys(); };
+  const saveKey = async () => { if (!form) return; const m = form.id ? 'PUT' : 'POST'; const u = form.id ? `${API_BASE}/api/keys/${form.id}` : `${API_BASE}/api/keys`; const p = { name: form.name||'', encrypt_code: form.encrypt_code||'', decrypt_code: form.decrypt_code||'', sign_code: form.sign_code||'', join_template: form.join_template||'', status: form.status||'active', params_template: form.params_template||'', response_template: form.response_template||'' }; await fetch(u, { method: m, headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }, body: JSON.stringify(p) }); setShowAdd(false); fetchKeys(); };
 
   // ★ 修改：auth_key 从 Body 改为 Header
   const testApi = async (endpoint: string, body: any, method: 'POST' | 'GET' = 'POST') => {
