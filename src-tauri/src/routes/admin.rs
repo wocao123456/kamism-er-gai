@@ -1,5 +1,5 @@
 use crate::{db::encrypted_fields::EncryptedFieldsOps,middleware::auth::{admin_only,auth_middleware,AppState},models::merchant::MerchantPublic,utils::mq};
-use axum::{extract::{Path,Query,State},middleware,routing::{get,patch,delete},Json,Router};
+use axum::{extract::{Path,Query,State},middleware,routing::{get,post,patch,delete},Json,Router};
 use redis::AsyncCommands;
 use serde::Deserialize;
 use serde_json::{json,Value};

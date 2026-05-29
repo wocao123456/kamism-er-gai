@@ -99,6 +99,7 @@ export default function MerchantDashboard() {
   const tooltipText = theme === 'dark' ? '#e8e8f0' : '#18181f';
 
   useEffect(() => {
+    logApi.log('view', 'platform', 'view_merchant_overview');
     setLoading(true);
     fetch('/api/merchant/op-logs?page=1&page_size=15',{headers:{Authorization:'Bearer '+localStorage.getItem('token')||''}}).then(r=>r.json()).then(d=>{if(d.success)setOpLogs(d.data||[]);}).catch(()=>{}).finally(()=>setLogsLoading(false));
     Promise.all([
