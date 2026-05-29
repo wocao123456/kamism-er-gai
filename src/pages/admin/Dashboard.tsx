@@ -159,8 +159,7 @@ export default function AdminDashboard() {
                   {getActionIcon(log.action)}
                   <span style={{ display: 'flex', flexDirection: 'column' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {getActionLabel(log.action)}
-                      {log.module && <span style={{ color: 'var(--text-muted)', fontSize: 11, background: 'var(--bg)', padding: '1px 6px', borderRadius: 4, border: '1px solid var(--border)' }}>{log.module}</span>}
+                      <span style={{ fontWeight: 500, fontSize: 12, color: 'var(--text)' }}>{log.detail || getActionLabel(log.action)}</span>
                       <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 12, fontWeight: 600, letterSpacing: 0.3, background: log.user_type === 'admin' ? 'linear-gradient(135deg, rgba(239,68,68,0.12), rgba(239,68,68,0.05))' : 'linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.05))', color: log.user_type === 'admin' ? '#ef4444' : '#3b82f6', border: log.user_type === 'admin' ? '1px solid rgba(239,68,68,0.2)' : '1px solid rgba(59,130,246,0.2)' }}>
                         {log.user_type === 'admin' ? '管理员' : log.user_type === 'merchant' ? '商户' : log.user_type || ''}
                       </span>

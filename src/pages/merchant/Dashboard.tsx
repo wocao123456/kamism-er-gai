@@ -190,8 +190,7 @@ export default function MerchantDashboard() {
                   {getActionIcon(log.action)}
                   <span style={{ display: 'flex', flexDirection: 'column' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {getActionLabel(log.action)}
-                      {log.module && <span style={{ color: 'var(--text-muted)', fontSize: 11, background: 'var(--bg)', padding: '1px 6px', borderRadius: 4, border: '1px solid var(--border)' }}>{log.module}</span>}
+                      <span style={{ fontWeight: 500, fontSize: 12, color: 'var(--text)' }}>{log.detail || getActionLabel(log.action)}</span>
                     </span>
                   </span>
                 </span>
