@@ -100,7 +100,14 @@ export default function AdminDashboard() {
           <div style={{ maxHeight: 200, overflow: 'auto' }}>
             {opLogs.map((log: any, idx: number) => (
               <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                <span>{log.action} - {log.module}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  {getActionIcon(log.action)}
+                  {getActionLabel(log.action)}
+                  {log.module && <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>({log.module})</span>}
+                  <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 10, background: log.user_type === 'admin' ? 'rgba(239,68,68,0.1)' : 'rgba(59,130,246,0.1)', color: log.user_type === 'admin' ? '#ef4444' : '#3b82f6' }}>
+                    {log.user_type === 'admin' ? '管理员' : log.user_type === 'merchant' ? '商户' : log.user_type || ''}
+                  </span>
+                </span>
                 <span style={{ color: 'var(--text-muted)' }}>{new Date(log.created_at).toLocaleString()}</span>
               </div>
             ))}

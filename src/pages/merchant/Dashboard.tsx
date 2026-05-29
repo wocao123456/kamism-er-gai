@@ -130,7 +130,11 @@ export default function MerchantDashboard() {
           <div style={{ maxHeight: 200, overflow: 'auto' }}>
             {opLogs.map((log: any, idx: number) => (
               <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                <span>{log.action} - {log.module}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  {getActionIcon(log.action)}
+                  {getActionLabel(log.action)}
+                  {log.module && <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>({log.module})</span>}
+                </span>
                 <span style={{ color: 'var(--text-muted)' }}>{new Date(log.created_at).toLocaleString()}</span>
               </div>
             ))}

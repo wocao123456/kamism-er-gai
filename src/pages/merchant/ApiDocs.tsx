@@ -49,8 +49,8 @@ function buildEndpoints(apiKey: string): Endpoint[] {
       id: 'sign', label: '签名', method: 'POST', path: '/api/ts/sign',
       desc: '使用API管理中配置的签名代码，对传入参数进行签名运算。需要先在API管理中配置签名逻辑（sign_code）。通过Header中Authorization Bearer auth_key鉴权。',
       headers: [
-        { key: 'Content-Type', value: 'application/json', desc: 'Fixed value' },
-        { key: 'Authorization', value: 'Bearer <auth_key>', desc: 'auth_key from API management' },
+        { key: 'Content-Type', value: 'application/json', desc: '固定值' },
+        { key: 'Authorization', value: 'Bearer <auth_key>', desc: 'API管理中获取的auth_key' },
       ],
       body: { key_name: '<配置名称>', text: '<待签名原文>', params: { '<自定义参数>': '<value>' } },
       response: { code: 200, msg: 'success', data: { key_name: 'sign', source: 'sha256', result: '<signature>', card_key: 'internal', created_at: '2026-05-29T00:00:00Z' } },
@@ -60,8 +60,8 @@ function buildEndpoints(apiKey: string): Endpoint[] {
       id: 'encrypt', label: '加密', method: 'POST', path: '/api/ts/encrypt',
       desc: '使用API管理中配置的加密代码，对传入文本进行加密。需要先在API管理中配置加密逻辑（encrypt_code）。通过Header中Authorization Bearer auth_key鉴权。',
       headers: [
-        { key: 'Content-Type', value: 'application/json', desc: 'Fixed value' },
-        { key: 'Authorization', value: 'Bearer <auth_key>', desc: 'auth_key from API management' },
+        { key: 'Content-Type', value: 'application/json', desc: '固定值' },
+        { key: 'Authorization', value: 'Bearer <auth_key>', desc: 'API管理中获取的auth_key' },
       ],
       body: { key_name: '<配置名称>', text: '<待加密文本>', params: { '<自定义参数>': '<value>' } },
       response: { code: 200, msg: 'success', data: { key_name: 'enc', source: 'custom', result: '<encrypted>', card_key: 'internal', created_at: '2026-05-29T00:00:00Z' } },
@@ -71,8 +71,8 @@ function buildEndpoints(apiKey: string): Endpoint[] {
       id: 'decrypt', label: '解密', method: 'POST', path: '/api/ts/decrypt',
       desc: '使用API管理中配置的解密代码，对密文进行解密还原。需要先在API管理中配置解密逻辑（decrypt_code）。通过Header中Authorization Bearer auth_key鉴权。',
       headers: [
-        { key: 'Content-Type', value: 'application/json', desc: 'Fixed value' },
-        { key: 'Authorization', value: 'Bearer <auth_key>', desc: 'auth_key from API management' },
+        { key: 'Content-Type', value: 'application/json', desc: '固定值' },
+        { key: 'Authorization', value: 'Bearer <auth_key>', desc: 'API管理中获取的auth_key' },
       ],
       body: { key_name: '<配置名称>', text: '<待解密密文>', params: { '<自定义参数>': '<value>' } },
       response: { code: 200, msg: 'success', data: { key_name: 'dec', source: 'custom', result: '<decrypted>', card_key: 'internal', created_at: '2026-05-29T00:00:00Z' } },
