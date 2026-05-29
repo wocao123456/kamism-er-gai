@@ -288,7 +288,7 @@ fn tp_label(tp: &str) -> &str {
 // ── 分类模块 ──
 
 fn classify_module(path: &str) -> String {
-    if path.contains("/auth") { "认证" }
+    let m = if path.contains("/auth") { "认证" }
     else if path.contains("/admin/merchants") { "商户管理" }
     else if path.contains("/admin/blacklist") { "黑名单管理" }
     else if path.contains("/admin/whitelist") { "白名单管理" }
@@ -319,5 +319,6 @@ fn classify_module(path: &str) -> String {
     else if path.contains("/ts/decrypt") { "接口-解密" }
     else if path.contains("/frontend-log") { "前端操作" }
     else { "其他" }
-}.to_string()
+};
+    m.to_string()
 }
