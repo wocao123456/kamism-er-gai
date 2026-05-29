@@ -39,6 +39,7 @@ export default function AdminDashboard() {
     }).catch(() => {}).finally(() => setLoading(false));
 
     fetch('/api/admin/op-logs?page=1&page_size=15',{headers:{Authorization:'Bearer '+JSON.parse(localStorage.getItem('kamism-auth')||'{}')?.state?.token||''}}).then(r=>r.json()).then(d=>{if(d.success)setOpLogs(d.data||[]);}).catch(()=>{}).finally(()=>setLogsLoading(false));
+
     healthApi.check().then(res => {
       setHealth(res.data);
     }).catch(() => {
@@ -71,7 +72,7 @@ export default function AdminDashboard() {
 
       <div className="stats-grid">
         {statCards.map(card => (
-          <div key={card.label} className="stat-card" style={{ borderTopColor: card.color } as React.CSSProperties}>
+          <div key={card.label} className={`stat-card ${card.breathing ? 'stat-card-breathing' : ''}`} style={{ '--card-color': card.color } as any}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span className="stat-label">{card.label}</span>
               <span style={{ color: card.color, opacity: 0.8 }}>{card.icon}</span>
@@ -85,7 +86,29 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* ── 依赖健康状态 ── */}
+      {/* 全局操作日志 */}
+      <div className='stat-card' style={{ marginTop: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+          <ScrollText size={18} className='text-accent' style={{ marginRight: 8 }} />
+          <h3 style={{ margin: 0, fontSize: 16 }}>全局操作日志</h3>
+        </div>
+        {logsLoading ? (
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>加载中...</div>
+        ) : opLogs.length === 0 ? (
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>暂无操作记录</div>
+        ) : (
+          <div style={{ maxHeight: 200, overflow: 'auto' }}>
+            {opLogs.map((log: any, idx: number) => (
+              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+                <span>{log.action} - {log.module}</span>
+                <span style={{ color: 'var(--text-muted)' }}>{new Date(log.created_at).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 服务依赖状态 */}
       <div className="card" style={{ marginTop: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>服务依赖状态</span>
@@ -99,52 +122,27 @@ export default function AdminDashboard() {
               borderRadius: 20,
               background: health?.status === 'ok' ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)',
               color: health?.status === 'ok' ? '#34d399' : '#f87171',
-            }}>
-              {health?.status === 'ok' ? '全部正常' : '部分异常'}
-            </span>
+            }}>{health?.status === 'ok' ? '正常' : '异常'}</span>
           )}
         </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+        <div className="service-deps-grid">
           {depItems.map(({ key, label, icon }) => {
             const ok = health?.[key] === 'ok';
             return (
-              <div key={key} style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '10px 14px', borderRadius: 10,
-                background: 'var(--bg)',
-                border: `1px solid ${healthLoading ? 'var(--border)' : ok ? 'rgba(52,211,153,0.25)' : 'rgba(248,113,113,0.25)'}`,
-              }}>
-                <span style={{ color: healthLoading ? 'var(--text-muted)' : ok ? '#34d399' : '#f87171' }}>
-                  {icon}
-                </span>
-                <span style={{ fontSize: 13, color: 'var(--text)', flex: 1 }}>{label}</span>
-                {healthLoading ? (
-                  <span className="skeleton" style={{ width: 36, height: 16, borderRadius: 4, display: 'inline-block' }} />
-                ) : (
-                  <span style={{ fontSize: 12, color: ok ? '#34d399' : '#f87171', fontWeight: 600 }}>
-                    {ok ? 'OK' : 'ERROR'}
-                  </span>
-                )}
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 8, background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                <span style={{ color: ok ? '#34d399' : '#f87171', fontSize: 14, fontWeight: 700 }}>{ok ? '✓' : '✗'}</span>
+                {icon}
+                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', flex: 1, whiteSpace: 'nowrap' }}>{label}</span>
+                <span style={{ fontSize: 12, color: ok ? '#34d399' : '#f87171', fontWeight: 600 }}>{ok ? 'OK' : 'DOWN'}</span>
               </div>
             );
           })}
         </div>
-
         {!healthLoading && health && (
           <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)' }}>
-            运行时长：{formatUptime(health.uptime_secs)}
+            已运行 {formatUptime(health.uptime_secs)}
           </div>
         )}
-      </div>
-
-      <div className="card">
-        <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.8 }}>
-          <p style={{ marginBottom: 8 }}><strong style={{ color: 'var(--accent)' }}>管理员提示</strong></p>
-          <p>• 前往「商户管理」查看所有注册商户，可禁用/启用账号</p>
-          <p>• 初始管理员账号在 .env 文件中配置（ADMIN_EMAIL / ADMIN_PASSWORD）</p>
-          <p>• 服务器默认监听端口 9527，可通过 PORT 环境变量修改</p>
-        </div>
       </div>
     </div>
   );

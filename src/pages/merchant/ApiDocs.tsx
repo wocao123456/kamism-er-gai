@@ -257,7 +257,7 @@ export default function ApiDocs() {
           )}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* 请求头 */}
           <div className="card">
             <p style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 12, fontSize: 13 }}>请求头</p>

@@ -107,7 +107,7 @@ export default function MerchantDashboard() {
 
       <div className="stats-grid">
         {summaryCards.map(card => (
-          <div key={card.label} className="stat-card">
+          <div key={card.label} className={`stat-card ${card.breathing ? "stat-card-breathing" : ""}`} style={{ "--card-color": card.color } as any}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span className="stat-label">{card.label}</span><span style={{ color: card.color, opacity: 0.8 }}>{card.icon}</span>
             </div>
