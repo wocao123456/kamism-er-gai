@@ -281,7 +281,7 @@ async fn check_card_rate(state: &AppState, merchant_id: Uuid, card_code: &str, i
         ).await;
         write_block(&state.pool, merchant_id, "card", &card_hash, block_limit, device_id).await;
 
-        let ip_hash = EncryptedFieldsOps::generate_hash(ip);
+        let _ip_hash = EncryptedFieldsOps::generate_hash(ip);
         write_block(&state.pool, merchant_id, "ip", ip, block_limit, device_id).await;
 
         return Some(Json(json!({
@@ -300,7 +300,7 @@ async fn heartbeat(
     let device_id_hash = EncryptedFieldsOps::generate_hash(&body.device_id);
     let now = Utc::now();
     let settings = get_risk_setting(&state.pool, "heartbeat", json!({"interval": 30, "timeout": 180})).await;
-    let timeout_secs = settings["timeout"].as_i64().unwrap_or(180);
+    let _timeout_secs = settings["timeout"].as_i64().unwrap_or(180);
 
     let existing: Option<(i32, i32, String)> = sqlx::query_as(
         "SELECT consecutive_failures, consecutive_successes, status FROM device_heartbeats WHERE device_id_hash = $1 LIMIT 1"
@@ -319,7 +319,7 @@ async fn heartbeat(
             .execute(&state.pool)
             .await;
         }
-        Some((_, successes, status)) => {
+        Some((_, _successes, status)) => {
             if status == "blocked" {
                 let blocked: Option<(chrono::DateTime<chrono::Utc>,)> = sqlx::query_as(
                     "SELECT last_blocked_until FROM device_heartbeats WHERE device_id_hash = $1"

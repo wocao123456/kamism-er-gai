@@ -1,5 +1,5 @@
 use axum::{body::Body, extract::{Request, State}, http::Method, middleware::Next, response::Response};
-use bytes::Bytes;
+use http_body_util::BodyExt;
 use serde_json::Value as JsonValue;
 use crate::middleware::auth::AppState;
 use crate::utils::jwt::verify_token;
@@ -19,7 +19,7 @@ pub async fn op_log_middleware(
     let body_json: Option<JsonValue> = if is_write {
         match req.body_mut().collect().await {
             Ok(collected) => {
-                let bytes: Bytes = collected.into();
+                let bytes = collected.to_bytes();
                 let json = serde_json::from_slice(&bytes).ok();
                 *req.body_mut() = Body::from(bytes);
                 json
@@ -90,8 +90,6 @@ fn classify_action(method: &Method, path: &str, body: Option<&JsonValue>) -> (St
     let card_key = { let v = bf(body, "card_key"); if v.is_empty() { bf(body, "key") } else { v } };
     let app_id = bf(body, "app_id");
     let count = bi(body, "count");
-    let key = bf(body, "key");
-    let setting_key = { let v = bf(body, "setting_key"); if v.is_empty() { bf(body, "key") } else { v } };
 
     // ── 认证 ──
     if path.contains("/auth/login") {
@@ -193,7 +191,7 @@ fn classify_action(method: &Method, path: &str, body: Option<&JsonValue>) -> (St
         return match *method {
             Method::POST => ("create".into(), format!("新建应用「{}」", name)),
             Method::PUT => ("update".into(), format!("修改应用「{}」", name)),
-            Method::DELETE => ("delete".into(), format!("删除应用 {}", sid)),
+            Method::DELETE => ("delete".into(), format!("删���应用 {}", sid)),
             _ => ("view".into(), "查看应用列表".into()),
         };
     }
