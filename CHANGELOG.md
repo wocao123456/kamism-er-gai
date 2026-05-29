@@ -31,6 +31,11 @@
 
 - **TypeScript 编译错误**：修复 Layout.tsx `Shield` 未使用、`user.charAt(0)` 不存在、admin Dashboard `RefreshCw` 未使用、ApiDocs 重复 `gap` 属性、NavItem 缺少 `hideForAdmin` 属性、separator 对象缺少 `icon` 等多个编译错误
 - **Rust 编译错误**：`api_keys.rs` 添加 `use axum::middleware` 导入
+- **API管理创建失败**：`api_keys.rs` create函数 bind 顺序修复（`merchant_id` 绑定为 `Option<Uuid>`），管理员角色设为 NULL，商户角色绑定自己的 uid
+- **API管理商户隔离逻辑**：list 函数区分管理员（查看全部）和商户（仅查看 `WHERE merchant_id = $1`），确保数据不互通
+- **外键约束修复**：`api_keys.merchant_id` 改为允许 NULL、`ON DELETE SET NULL`，管理员创建的密钥不绑定商户
+- **操作日志不显示**：Dashboard 从 `kamism-auth` 读取 token 改为 `localStorage.getItem('token')`，与 auth store 实际存储一致
+- **RabbitMQ 图标**：服务依赖区块 RabbitMQ 图标从 `GitBranch` 改为 `Rabbit
 - **数据库迁移对齐**：由于 git reset 导致迁移文件丢失（007-010），重新创建带 `IF NOT EXISTS` 的迁移文件，删除 DB 中旧的迁移记录让 sqlx 重新应用
 - **后端列名修复**：`ip` → `ip_address`，修复运行时报错
 

@@ -88,10 +88,17 @@ async fn list(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<ApiResponse>, StatusCode> {
-    let uid = Uuid::parse_str(&claims.sub).unwrap_or_default();
-    let rows: Vec<(serde_json::Value,)> = sqlx::query_as(
-        "SELECT row_to_json(t) FROM (SELECT id, name, encrypt_code, sign_code, join_template, request_method, request_base_url, request_success_check, status, params_template, response_template, encrypt_enabled, encrypt_algorithm, encrypt_mode, encrypt_padding, encrypt_key, encrypt_iv_source, encrypt_param_name, encrypt_encoding, encrypt_charset,decrypt_code, created_at, updated_at FROM api_keys WHERE merchant_id = $1 ORDER BY created_at DESC) t"
-    ).bind(uid).fetch_all(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // 管理员看全部，商户只看自己的
+    let rows: Vec<(serde_json::Value,)> = if claims.role == "admin" {
+        sqlx::query_as(
+            "SELECT row_to_json(t) FROM (SELECT id, name, encrypt_code, sign_code, join_template, request_method, request_base_url, request_success_check, status, params_template, response_template, encrypt_enabled, encrypt_algorithm, encrypt_mode, encrypt_padding, encrypt_key, encrypt_iv_source, encrypt_param_name, encrypt_encoding, encrypt_charset,decrypt_code, created_at, updated_at FROM api_keys ORDER BY created_at DESC) t"
+        ).fetch_all(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else {
+        let uid = Uuid::parse_str(&claims.sub).unwrap_or_default();
+        sqlx::query_as(
+            "SELECT row_to_json(t) FROM (SELECT id, name, encrypt_code, sign_code, join_template, request_method, request_base_url, request_success_check, status, params_template, response_template, encrypt_enabled, encrypt_algorithm, encrypt_mode, encrypt_padding, encrypt_key, encrypt_iv_source, encrypt_param_name, encrypt_encoding, encrypt_charset,decrypt_code, created_at, updated_at FROM api_keys WHERE merchant_id = $1 ORDER BY created_at DESC) t"
+        ).bind(uid).fetch_all(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    };
     let data: Vec<serde_json::Value> = rows.into_iter().map(|r| r.0).collect();
     Ok(ok(serde_json::json!(data)))
 }
@@ -102,9 +109,14 @@ async fn create(
     Json(form): Json<ApiKeyForm>,
 ) -> Result<Json<ApiResponse>, StatusCode> {
     let id = Uuid::new_v4();
-    let uid = Uuid::parse_str(&claims.sub).unwrap_or_default();
+    // 管理员角色 merchant_id 设为 NULL，商户角色绑定自己的 uid
+    let merchant_id: Option<Uuid> = if claims.role == "merchant" {
+        Uuid::parse_str(&claims.sub).ok()
+    } else {
+        None
+    };
     sqlx::query("INSERT INTO api_keys (id,merchant_id,name,encrypt_code,sign_code,join_template,request_method,request_base_url,request_success_check,status,params_template,response_template,encrypt_enabled,encrypt_algorithm,encrypt_mode,encrypt_padding,encrypt_key,encrypt_iv_source,encrypt_param_name,encrypt_encoding,encrypt_charset,decrypt_code) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)")
-        .bind(id).bind(&form.name).bind(&form.encrypt_code).bind(&form.sign_code).bind(&form.join_template)
+        .bind(id).bind(merchant_id).bind(&form.name).bind(&form.encrypt_code).bind(&form.sign_code).bind(&form.join_template)
         .bind(&form.request_method).bind(&form.request_base_url).bind(&form.request_success_check)
         .bind(form.status.as_deref().unwrap_or("active"))
         .bind(&form.params_template).bind(&form.response_template)

@@ -45,7 +45,7 @@ export default function MerchantDashboard() {
 
   useEffect(() => {
     setLoading(true);
-    fetch('/api/merchant/op-logs?page=1&page_size=15',{headers:{Authorization:'Bearer '+JSON.parse(localStorage.getItem('kamism-auth')||'{}')?.state?.token||''}}).then(r=>r.json()).then(d=>{if(d.success)setOpLogs(d.data||[]);}).catch(()=>{}).finally(()=>setLogsLoading(false));
+    fetch('/api/merchant/op-logs?page=1&page_size=15',{headers:{Authorization:'Bearer '+localStorage.getItem('token')||''}}).then(r=>r.json()).then(d=>{if(d.success)setOpLogs(d.data||[]);}).catch(()=>{}).finally(()=>setLogsLoading(false));
     Promise.all([
       merchantApi.dashboardStats(range),
       activationsApi.list({ page: 1, page_size: 500 })

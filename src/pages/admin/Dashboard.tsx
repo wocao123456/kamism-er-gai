@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { adminApi, healthApi } from '../../lib/api';
-import { Users, Key, Activity, Package, TrendingUp, Database, Server, GitBranch, ScrollText } from 'lucide-react';
+import { Users, Key, Activity, Package, TrendingUp, Database, Server, Rabbit, ScrollText } from 'lucide-react';
 
 interface Stats {
   merchants: number;
@@ -38,7 +38,7 @@ export default function AdminDashboard() {
       if (res.data.success) setStats(res.data.data);
     }).catch(() => {}).finally(() => setLoading(false));
 
-    fetch('/api/admin/op-logs?page=1&page_size=15',{headers:{Authorization:'Bearer '+JSON.parse(localStorage.getItem('kamism-auth')||'{}')?.state?.token||''}}).then(r=>r.json()).then(d=>{if(d.success)setOpLogs(d.data||[]);}).catch(()=>{}).finally(()=>setLogsLoading(false));
+    fetch('/api/admin/op-logs?page=1&page_size=15',{headers:{Authorization:'Bearer '+localStorage.getItem('token')||''}}).then(r=>r.json()).then(d=>{if(d.success)setOpLogs(d.data||[]);}).catch(()=>{}).finally(()=>setLogsLoading(false));
 
     healthApi.check().then(res => {
       setHealth(res.data);
@@ -58,7 +58,7 @@ export default function AdminDashboard() {
   const depItems = [
     { key: 'db'    as const, label: '数据库',   icon: <Database size={15} /> },
     { key: 'redis' as const, label: 'Redis',    icon: <Server size={15} /> },
-    { key: 'mq'    as const, label: 'RabbitMQ', icon: <GitBranch size={15} /> },
+    { key: 'mq'    as const, label: 'RabbitMQ', icon: <Rabbit size={15} /> },
   ];
 
   return (
