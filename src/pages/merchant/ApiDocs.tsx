@@ -3,6 +3,42 @@ import { useAuthStore } from '../../stores/auth';
 import { Copy, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+const API_RESPONSIVE_CSS = `
+/* ===== API Docs Mobile Responsive ===== */
+@media (max-width: 768px) {
+  .api-docs-flex {
+    flex-direction: column !important;
+  }
+  .api-docs-sidebar {
+    min-width: 100% !important;
+    max-width: 100% !important;
+  }
+  .api-docs-main {
+    min-width: 100% !important;
+  }
+  .api-docs-row {
+    flex-direction: column !important;
+  }
+  .api-code-row {
+    flex-direction: column !important;
+  }
+  .api-code-col {
+    min-width: 100% !important;
+  }
+  .api-tab-list {
+    flex-wrap: wrap !important;
+  }
+  .api-header-bar {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+  }
+  .api-header-bar code {
+    word-break: break-all !important;
+  }
+}
+`;
+
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:9527';
 
 type Tab = 'activate' | 'verify' | 'unbind';
@@ -170,6 +206,7 @@ export default function ApiDocs() {
 
   return (
     <div className="fade-in">
+      <style>{API_RESPONSIVE_CSS}</style>
       <div className="page-header">
         <div>
           <h1 className="page-title">API 接口文档</h1>
@@ -178,7 +215,7 @@ export default function ApiDocs() {
       </div>
 
       {/* Base URL + API Key 提示 */}
-      <div style={{
+      <div className="api-header-bar" style={{
         background: 'rgba(124,106,247,0.07)',
         border: '1px solid rgba(124,106,247,0.2)',
         borderRadius: 10,
@@ -202,7 +239,7 @@ export default function ApiDocs() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+      <div className="api-tab-list" style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         {endpoints.map((e) => (
           <button
             key={e.id}
@@ -224,57 +261,57 @@ export default function ApiDocs() {
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: 16 }}>
-        {/* 接口概览 */}
-        <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <span style={{
-              background: '#10b98122',
-              color: '#10b981',
-              fontFamily: 'var(--mono)',
-              fontSize: 11,
-              fontWeight: 800,
-              padding: '3px 8px',
-              borderRadius: 5,
-              letterSpacing: '0.5px',
-            }}>POST</span>
-            <code className="mono" style={{ fontSize: 13, color: 'var(--text)' }}>{BASE_URL}{ep.path}</code>
-          </div>
-          <p style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.7, margin: 0 }}>{ep.desc}</p>
-          {ep.note && (
-            <div style={{
-              marginTop: 12,
-              padding: '8px 12px',
-              background: 'rgba(245,158,11,0.08)',
-              border: '1px solid rgba(245,158,11,0.2)',
-              borderRadius: 6,
-              fontSize: 12,
-              color: '#d97706',
-              lineHeight: 1.6,
-            }}>
-              {ep.note}
+      {/* Mobile: column layout; Desktop: row layout */}
+      <div className="api-docs-flex" style={{ display: 'flex', gap: 16 }}>
+        {/* 接口概览 + 请求头 + 请求体 — 左侧/上方 */}
+        <div className="api-docs-sidebar" style={{ minWidth: 0, flex: '1 1 400px' }}>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <span style={{
+                background: '#10b98122',
+                color: '#10b981',
+                fontFamily: 'var(--mono)',
+                fontSize: 11,
+                fontWeight: 800,
+                padding: '3px 8px',
+                borderRadius: 5,
+                letterSpacing: '0.5px',
+              }}>POST</span>
+              <code className="mono" style={{ fontSize: 13, color: 'var(--text)' }}>{BASE_URL}{ep.path}</code>
             </div>
-          )}
-        </div>
+            <p style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.7, margin: 0 }}>{ep.desc}</p>
+            {ep.note && (
+              <div style={{
+                marginTop: 12,
+                padding: '8px 12px',
+                background: 'rgba(245,158,11,0.08)',
+                border: '1px solid rgba(245,158,11,0.2)',
+                borderRadius: 6,
+                fontSize: 12,
+                color: '#d97706',
+                lineHeight: 1.6,
+              }}>
+                {ep.note}
+              </div>
+            )}
+          </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* 请求头 */}
-          <div className="card">
+          <div className="card" style={{ marginBottom: 16 }}>
             <p style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 12, fontSize: 13 }}>请求头</p>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {ep.headers.map((h) => (
-                <div key={h.key} style={{
-                  display: 'flex', gridTemplateColumns: 'auto 1fr',
-                  gap: '4px 12px', alignItems: 'start',
-                  padding: '8px 0', borderBottom: '1px solid var(--border)',
-                }}>
+            {ep.headers.map((h) => (
+              <div key={h.key} style={{
+                display: 'flex', flexDirection: 'column',
+                gap: 4, padding: '8px 0',
+                borderBottom: '1px solid var(--border)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <code className="mono" style={{ fontSize: 11, color: 'var(--accent)', whiteSpace: 'nowrap' }}>{h.key}</code>
                   <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{h.desc}</span>
-                  <span />
-                  <code className="mono" style={{ fontSize: 11, color: 'var(--text-dim)' }}>{h.value}</code>
                 </div>
-              ))}
-            </div>
+                <code className="mono" style={{ fontSize: 11, color: 'var(--text-dim)' }}>{h.value}</code>
+              </div>
+            ))}
           </div>
 
           {/* 请求体 */}
@@ -284,23 +321,26 @@ export default function ApiDocs() {
           </div>
         </div>
 
-        {/* 响应示例 */}
-        <div className="card">
-          <p style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 12, fontSize: 13 }}>响应示例</p>
-          <CodeBlock code={JSON.stringify(ep.response, null, 2)} />
-        </div>
+        {/* 响应 + 代码示例 — 右侧/下方 */}
+        <div className="api-docs-main" style={{ minWidth: 0, flex: '1 1 400px' }}>
+          {/* 响应示例 */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <p style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 12, fontSize: 13 }}>响应示例</p>
+            <CodeBlock code={JSON.stringify(ep.response, null, 2)} />
+          </div>
 
-        {/* 代码示例 */}
-        <div className="card">
-          <p style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 16, fontSize: 13 }}>代码示例</p>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div>
-              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>cURL</p>
-              <CodeBlock code={curl} lang="bash" />
-            </div>
-            <div>
-              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Python</p>
-              <CodeBlock code={pythonCode} lang="python" />
+          {/* 代码示例 */}
+          <div className="card">
+            <p style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 16, fontSize: 13 }}>代码示例</p>
+            <div className="api-code-row" style={{ display: 'flex', gap: 12 }}>
+              <div className="api-code-col" style={{ flex: 1 }}>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>cURL</p>
+                <CodeBlock code={curl} lang="bash" />
+              </div>
+              <div className="api-code-col" style={{ flex: 1 }}>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Python</p>
+                <CodeBlock code={pythonCode} lang="python" />
+              </div>
             </div>
           </div>
         </div>

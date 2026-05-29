@@ -22,7 +22,6 @@ const adminNav: NavItem[] = [
   { label: '总览', path: '/admin/dashboard', icon: <LayoutDashboard size={16} /> },
   { label: '商户管理', path: '/admin/merchants', icon: <Users size={16} /> },
   { label: '套餐配置', path: '/admin/plan-configs', icon: <Settings size={16} /> },
-  { label: 'API管理', path: '/admin/api-manage', icon: <Webhook size={16} /> },
   { label: '消息管理', path: '/admin/messages', icon: <Megaphone size={16} /> },
 ];
 
@@ -35,6 +34,7 @@ const merchantNav: NavItem[] = [
   { label: '风控管理', path: '/blacklist', icon: <ShieldAlert size={16} /> },
   { label: '代理管理', path: '/agents',    icon: <Network size={16} />, hideForAdmin: true },
   { label: 'API 文档',  path: '/api-docs',  icon: <BookOpen size={16} /> },
+  { label: 'API 管理',  path: '/api-manage', icon: <Webhook size={16} /> },
   { label: '账号设置', path: '/settings', icon: <Settings size={16} /> },
 ];
 
@@ -89,7 +89,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   };
 
   const navItems: NavItem[] = role === 'admin'
-    ? [...adminNav, { label: '── 商户功能 ──', path: '', icon: <span /> }, ...merchantNav.filter(n => !n.hideForAdmin)]
+    ? [...adminNav, { label: '── 商户功能 ──', path: '', icon: <span /> }, ...merchantNav.filter(n => !n.hideForAdmin && n.path !== '/api-manage')]
     : merchantNav;
 
   const handleLogout = () => {
