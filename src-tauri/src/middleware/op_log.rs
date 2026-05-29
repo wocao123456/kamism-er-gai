@@ -15,6 +15,11 @@ pub async fn op_log_middleware(
     let path = req.uri().path().to_string();
     let is_write = matches!(method, Method::POST | Method::PUT | Method::PATCH | Method::DELETE);
 
+    // 跳过不需要记录的路径（健康检查、外部API调用、前端上报）
+    if path == "/health" || path.starts_with("/api/ts/") || path == "/api/frontend-log" {
+        return next.run(req).await;
+    }
+
     // 读请求体并放回，让下游 handler 正常消费
     let body_json: Option<JsonValue> = if is_write {
         match req.body_mut().collect().await {
