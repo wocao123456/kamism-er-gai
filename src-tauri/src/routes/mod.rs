@@ -15,8 +15,9 @@ pub mod agent;
 pub mod api_keys;
 pub mod api_ts;
 
-use axum::Router;
+use axum::{Router, middleware};
 use crate::middleware::auth::AppState;
+use crate::middleware::op_log::op_log_middleware;
 
 pub fn routes(state: AppState) -> Router<AppState> {
     let health = health::health_router();
@@ -36,4 +37,5 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .nest("/blacklist", blacklist::blacklist_router(state.clone()))
         .nest("/agent", agent::agent_router(state.clone()))
         .nest("/", api_keys::api_keys_router(state.clone()))
+        .layer(middleware::from_fn_with_state(state, op_log_middleware))
 }

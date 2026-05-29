@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:9527';
 
-type Tab = 'activate' | 'verify' | 'unbind';
+type Tab = 'activate' | 'verify' | 'unbind' | 'sign' | 'encrypt' | 'decrypt';
 
 interface Endpoint {
   id: Tab;
@@ -14,7 +14,7 @@ interface Endpoint {
   path: string;
   desc: string;
   headers: { key: string; value: string; desc: string }[];
-  body: Record<string, string>;
+  body: Record<string, unknown>;
   response: object;
   note?: string;
 }
@@ -45,6 +45,40 @@ function buildEndpoints(apiKey: string): Endpoint[] {
       response: { success: true, message: '设备已解绑' },
       note: '商户也可以在「激活记录」页面手动解绑设备，无需调用此接口。若解绑后该卡密无绑定设备，卡密状态将自动重置为 unused。',
     },
+    {
+      id: 'sign', label: 'sign', method: 'POST', path: '/api/ts/sign',
+      desc: 'Sign parameters using the configured sign code. Requires Authorization Bearer auth_key.',
+      headers: [
+        { key: 'Content-Type', value: 'application/json', desc: 'Fixed value' },
+        { key: 'Authorization', value: 'Bearer <auth_key>', desc: 'auth_key from API management' },
+      ],
+      body: { key_name: '<config_name>', text: '<text_to_sign>', params: { '<custom_param>': '<value>' } },
+      response: { code: 200, msg: 'success', data: { key_name: 'sign', source: 'sha256', result: '<signature>', card_key: 'internal', created_at: '2026-05-29T00:00:00Z' } },
+      note: 'Sign code is configured in API management. Supports custom Python logic.',
+    },
+    {
+      id: 'encrypt', label: 'encrypt', method: 'POST', path: '/api/ts/encrypt',
+      desc: 'Encrypt text using the configured encrypt code. Requires Authorization Bearer auth_key.',
+      headers: [
+        { key: 'Content-Type', value: 'application/json', desc: 'Fixed value' },
+        { key: 'Authorization', value: 'Bearer <auth_key>', desc: 'auth_key from API management' },
+      ],
+      body: { key_name: '<config_name>', text: '<text_to_encrypt>', params: { '<custom_param>': '<value>' } },
+      response: { code: 200, msg: 'success', data: { key_name: 'enc', source: 'custom', result: '<encrypted>', card_key: 'internal', created_at: '2026-05-29T00:00:00Z' } },
+      note: 'Encrypt code is configured in API management. params is input to Python script.',
+    },
+    {
+      id: 'decrypt', label: 'decrypt', method: 'POST', path: '/api/ts/decrypt',
+      desc: 'Decrypt ciphertext using the configured decrypt code. Requires Authorization Bearer auth_key.',
+      headers: [
+        { key: 'Content-Type', value: 'application/json', desc: 'Fixed value' },
+        { key: 'Authorization', value: 'Bearer <auth_key>', desc: 'auth_key from API management' },
+      ],
+      body: { key_name: '<config_name>', text: '<ciphertext>', params: { '<custom_param>': '<value>' } },
+      response: { code: 200, msg: 'success', data: { key_name: 'dec', source: 'custom', result: '<decrypted>', card_key: 'internal', created_at: '2026-05-29T00:00:00Z' } },
+      note: 'Decrypt code is configured in API management. text is ciphertext to decrypt.',
+    },
+
   ];
 }
 

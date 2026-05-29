@@ -125,15 +125,17 @@ pub async fn start_server() -> anyhow::Result<()> {
         }
     });
 
-    // 每3小时清空操作日志
+    // 每6小时清理过期日志 (operation_logs保留7天)
     let log_clean_pool = pool.clone();
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10800));
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(21600));
         loop {
             interval.tick().await;
-            let cutoff = chrono::Utc::now() - chrono::Duration::hours(3);
-            let _ = sqlx::query("DELETE FROM activation_alerts WHERE created_at < $1").bind(cutoff).execute(&log_clean_pool).await;
-            let _ = sqlx::query("DELETE FROM api_call_logs WHERE created_at < $1").bind(cutoff).execute(&log_clean_pool).await;
+            let cutoff_7d = chrono::Utc::now() - chrono::Duration::days(7);
+            let cutoff_24h = chrono::Utc::now() - chrono::Duration::hours(24);
+            let _ = sqlx::query("DELETE FROM operation_logs WHERE created_at < $1").bind(cutoff_7d).execute(&log_clean_pool).await;
+            let _ = sqlx::query("DELETE FROM activation_alerts WHERE created_at < $1").bind(cutoff_24h).execute(&log_clean_pool).await;
+            let _ = sqlx::query("DELETE FROM api_call_logs WHERE created_at < $1").bind(cutoff_24h).execute(&log_clean_pool).await;
         }
     });
 

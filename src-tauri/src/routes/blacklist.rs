@@ -12,7 +12,7 @@
 
 use crate::{
     db::encrypted_fields::EncryptedFieldsOps,
-    middleware::auth::{auth_middleware, AppState},
+    middleware::auth::{auth_middleware, admin_only, AppState},
     utils::jwt::Claims,
 };
 use axum::{
@@ -78,15 +78,25 @@ pub struct AlertEntry {
 // ── 路由注册 ──────────────────────────────────────────────────────────────────
 
 pub fn blacklist_router(state: AppState) -> Router<AppState> {
-    Router::new()
-        .route("/blacklist/ips", get(list_ip).post(add_ip))
-        .route("/blacklist/ips/:id", delete(remove_ip))
-        .route("/blacklist/devices", get(list_device).post(add_device))
-        .route("/blacklist/devices/:id", delete(remove_device))
+    // 读操作：所有已认证用户可用
+    let read_routes = Router::new()
+        .route("/blacklist/ips", get(list_ip))
+        .route("/blacklist/devices", get(list_device))
         .route("/blacklist/alerts", get(list_alerts))
         .route("/blacklist/alerts/unread_count", get(alerts_unread_count))
+        .route_layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+
+    // 写操作：仅管理员
+    let write_routes = Router::new()
+        .route("/blacklist/ips", post(add_ip))
+        .route("/blacklist/ips/:id", delete(remove_ip))
+        .route("/blacklist/devices", post(add_device))
+        .route("/blacklist/devices/:id", delete(remove_device))
         .route("/blacklist/alerts/:id/read", post(mark_alert_read))
-        .route_layer(middleware::from_fn_with_state(state, auth_middleware))
+        .route_layer(middleware::from_fn(admin_only))
+        .route_layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+
+    read_routes.merge(write_routes)
 }
 
 // ── IP 黑名单 ─────────────────────────────────────────────────────────────────

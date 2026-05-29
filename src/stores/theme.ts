@@ -1,46 +1,42 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-
-type Theme = 'dark' | 'light';
 
 interface ThemeStore {
-  theme: Theme;
+  theme: 'dark' | 'light';
   toggle: () => void;
-  setTheme: (t: Theme) => void;
+  setTheme: (t: 'dark' | 'light') => void;
 }
 
-function getInitialTheme(): Theme {
-  try {
-    const raw = localStorage.getItem('kamism-theme');
-    if (raw) { const p = JSON.parse(raw); if (p?.state?.theme) return p.state.theme; }
-  } catch {}
+function getSystemTheme(): 'dark' | 'light' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-export const useThemeStore = create<ThemeStore>()(
-  persist(
-    (set, get) => ({
-      theme: getInitialTheme(),
-      toggle: () => {
-        const next = get().theme === 'dark' ? 'light' : 'dark';
-        set({ theme: next });
-        document.documentElement.setAttribute('data-theme', next);
-      },
-      setTheme: (t) => {
-        set({ theme: t });
-        document.documentElement.setAttribute('data-theme', t);
-      },
-    }),
-    {
-      name: 'kamism-theme',
-      onRehydrateStorage: () => (state) => {
-        if (state) document.documentElement.setAttribute('data-theme', state.theme);
-      },
-    }
-  )
-);
+function applyTheme(t: string) {
+  document.documentElement.setAttribute('data-theme', t);
+}
+
+// 启动时立即应用系统主题
+applyTheme(getSystemTheme());
+
+// 监听系统主题变化，自动跟随
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+  const t = e.matches ? 'dark' : 'light';
+  applyTheme(t);
+  useThemeStore.setState({ theme: t });
+});
+
+export const useThemeStore = create<ThemeStore>()((set, get) => ({
+  theme: getSystemTheme(),
+  toggle: () => {
+    const next = get().theme === 'dark' ? 'light' : 'dark';
+    set({ theme: next });
+    applyTheme(next);
+  },
+  setTheme: (t) => {
+    set({ theme: t });
+    applyTheme(t);
+  },
+}));
 
 export function applyStoredTheme() {
-  const theme = getInitialTheme();
-  document.documentElement.setAttribute('data-theme', theme);
+  applyTheme(getSystemTheme());
 }
