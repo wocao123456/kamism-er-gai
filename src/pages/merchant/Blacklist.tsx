@@ -143,7 +143,7 @@ export default function Blacklist() {
   const [blFilter, setBlFilter] = useState('');
   const [showBlModal, setShowBlModal] = useState(false);
   const [blForm, setBlForm] = useState({ tp: 'ip', value: '', reason: '' });
-  const [blStats, setBlStats] = useState({ ip_total: 0, dev_total: 0, ip_today: 0, dev_today: 0 });
+  const [blStats, setBlStats] = useState({ ip_total: 0, dev_total: 0, card_total: 0, ip_today: 0, dev_today: 0, card_today: 0 });
   const [showBlDetail, setShowBlDetail] = useState(false);
   const [blDetail, setBlDetail] = useState<BlacklistEntry | null>(null);
 
@@ -154,7 +154,7 @@ export default function Blacklist() {
   const [wlFilter, setWlFilter] = useState('');
   const [showWlModal, setShowWlModal] = useState(false);
   const [wlForm, setWlForm] = useState({ tp: 'ip', value: '', reason: '' });
-  const [wlStats, setWlStats] = useState({ ip_total: 0, dev_total: 0 });
+  const [wlStats, setWlStats] = useState({ ip_total: 0, dev_total: 0, card_total: 0 });
   const [showWlDetail, setShowWlDetail] = useState(false);
   const [wlDetail, setWlDetail] = useState<BlacklistEntry | null>(null);
 
@@ -628,7 +628,7 @@ export default function Blacklist() {
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              今日封禁 🌐IP {blStats.ip_today} 📱设备 {blStats.dev_today} ｜ 总计 🌐IP {blStats.ip_total} 📱设备 {blStats.dev_total}
+              今日封禁 🌐IP {blStats.ip_today} 📱设备 {blStats.dev_today} 🔑卡密 {blStats.card_today} ｜ 总计 🌐IP {blStats.ip_total} 📱设备 {blStats.dev_total} 🔑卡密 {blStats.card_total}
             </span>
             <div style={{ display: 'flex', gap: 8 }}>
               <select
@@ -646,6 +646,7 @@ export default function Blacklist() {
                 <option value="">全部类型</option>
                 <option value="ip">IP</option>
                 <option value="device">设备</option>
+                <option value="card">卡密</option>
               </select>
               <button className="btn btn-ghost" onClick={() => { loadBlacklist(); loadBlStats(); }}>
                 <RefreshCw size={14} /> 刷新
@@ -693,9 +694,9 @@ export default function Blacklist() {
                         <span style={{
                           fontSize: 11,
                           fontWeight: 600,
-                          color: b.type === 'ip' ? '#60a5fa' : '#f59e0b'
+                          color: b.type === 'ip' ? '#60a5fa' : b.type === 'card' ? '#a78bfa' : '#f59e0b'
                         }}>
-                          {b.type === 'ip' ? '🌐IP' : '📱设备'}
+                          {b.type === 'ip' ? '🌐IP' : b.type === 'card' ? '🔑卡密' : '📱设备'}
                         </span>
                       </td>
                       <td>
@@ -772,10 +773,10 @@ export default function Blacklist() {
           {showBlDetail && blDetail && (
             <div className="modal-overlay" onClick={() => setShowBlDetail(false)}>
               <div className="modal" style={{ maxWidth: 450, borderRadius: 20, padding: 28 }} onClick={e => e.stopPropagation()}>
-                <h2 className="modal-title" style={{ marginBottom: 16 }}>📋 {blDetail.type === 'ip' ? 'IP' : '设备'}黑名单详情</h2>
+                <h2 className="modal-title" style={{ marginBottom: 16 }}>📋 {blDetail.type === 'ip' ? 'IP' : blDetail.type === 'card' ? '卡密' : '设备'}黑名单详情</h2>
                 <div style={detailBoxStyle}>
                   <span style={detailLabelStyle}>类型</span>
-                  <span>{blDetail.type === 'ip' ? '🌐 IP' : '📱 设备'}</span>
+                  <span>{blDetail.type === 'ip' ? '🌐 IP' : blDetail.type === 'card' ? '🔑 卡密' : '📱 设备'}</span>
                   
                   <span style={detailLabelStyle}>标识</span>
                   <span style={detailValueStyle}>{blDetail.value}</span>
@@ -823,12 +824,13 @@ export default function Blacklist() {
                     >
                       <option value="ip">🌐 IP</option>
                       <option value="device">📱 设备</option>
+                      <option value="card">🔑 卡密</option>
                     </select>
                   </div>
                   <div className="form-group">
-                    <label className="form-label">{blForm.tp === 'ip' ? 'IP 地址' : '设备 ID'} *</label>
+                    <label className="form-label">{blForm.tp === 'ip' ? 'IP 地址' : blForm.tp === 'card' ? '卡密密钥' : '设备 ID'} *</label>
                     <input
-                      placeholder={blForm.tp === 'ip' ? '如：192.168.1.1' : '输入设备ID'}
+                      placeholder={blForm.tp === 'ip' ? '如：192.168.1.1' : blForm.tp === 'card' ? '输入卡密密钥' : '输入设备ID'}
                       value={blForm.value}
                       onChange={e => setBlForm({ ...blForm, value: e.target.value })}
                       style={inputFull}
@@ -862,7 +864,7 @@ export default function Blacklist() {
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              🌐IP白名单 {wlStats.ip_total} ｜ 📱设备白名单 {wlStats.dev_total}
+              🌐IP {wlStats.ip_total} ｜ 📱设备 {wlStats.dev_total} ｜ 🔑卡密 {wlStats.card_total}
             </span>
             <div style={{ display: 'flex', gap: 8 }}>
               <select
@@ -880,6 +882,7 @@ export default function Blacklist() {
                 <option value="">全部类型</option>
                 <option value="ip">IP</option>
                 <option value="device">设备</option>
+                <option value="card">卡密</option>
               </select>
               <button className="btn btn-ghost" onClick={() => { loadWhitelist(); loadWlStats(); }}>
                 <RefreshCw size={14} /> 刷新
@@ -1039,12 +1042,13 @@ export default function Blacklist() {
                     >
                       <option value="ip">🌐 IP</option>
                       <option value="device">📱 设备</option>
+                      <option value="card">🔑 卡密</option>
                     </select>
                   </div>
                   <div className="form-group">
-                    <label className="form-label">{wlForm.tp === 'ip' ? 'IP 地址' : '设备 ID'} *</label>
+                    <label className="form-label">{wlForm.tp === 'ip' ? 'IP 地址' : wlForm.tp === 'card' ? '卡密密钥' : '设备 ID'} *</label>
                     <input
-                      placeholder={wlForm.tp === 'ip' ? '如：192.168.1.1' : '输入设备ID'}
+                      placeholder={wlForm.tp === 'ip' ? '如：192.168.1.1' : wlForm.tp === 'card' ? '输入卡密密钥' : '输入设备ID'}
                       value={wlForm.value}
                       onChange={e => setWlForm({ ...wlForm, value: e.target.value })}
                       style={inputFull}

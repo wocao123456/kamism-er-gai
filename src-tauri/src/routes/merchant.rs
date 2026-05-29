@@ -35,6 +35,7 @@ pub fn merchant_router(state: AppState) -> Router<AppState> {
         .route("/merchant/change-password", post(change_password))
         .route("/merchant/regenerate-apikey", post(regenerate_api_key))
         .route("/merchant/op-logs", get(merchant_op_logs))
+        .route("/merchant/frontend-log", post(merchant_frontend_log))
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
 
@@ -223,4 +224,13 @@ async fn merchant_op_logs(State(state): State<AppState>, Extension(claims): Exte
         "ip": ip.unwrap_or_default(), "created_at": created
     })).collect();
     Json(json!({"success": true, "data": list, "total": total.0, "page": page, "page_size": ps}))
+}
+
+async fn merchant_frontend_log(State(state): State<AppState>, Extension(claims): Extension<Claims>, Json(body): Json<serde_json::Value>) -> Json<Value> {
+    let action = body.get("action").and_then(|v| v.as_str()).unwrap_or("other");
+    let module = body.get("module").and_then(|v| v.as_str()).unwrap_or("");
+    let detail = body.get("detail").and_then(|v| v.as_str()).unwrap_or("");
+    let user_id = Uuid::parse_str(&claims.sub).ok();
+    crate::utils::op_log::log_operation(&state.pool, "merchant", user_id, action, module, detail, "").await;
+    Json(json!({"success": true}))
 }

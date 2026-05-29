@@ -30,6 +30,7 @@ pub fn admin_router_with_state(state:AppState)->Router<AppState>{
         .route("/admin/alerts/stats",get(alert_stats))
         .route("/admin/risk-settings",get(get_risk_settings).post(save_risk_settings))
         .route("/admin/op-logs",get(op_logs))
+        .route("/admin/frontend-log",post(frontend_log))
         .route_layer(middleware::from_fn(admin_only))
         .route_layer(middleware::from_fn_with_state(state,auth_middleware))
 }
@@ -104,6 +105,9 @@ async fn add_blacklist(State(state):State<AppState>,Json(body):Json<AddBlacklist
     if body.tp=="ip"{
         let r=sqlx::query("INSERT INTO ip_blacklist(ip,reason) VALUES($1,$2) ON CONFLICT (COALESCE(merchant_id::text,'global'::text),ip) DO UPDATE SET reason=$2").bind(&body.value).bind(&body.reason).execute(&state.pool).await;
         match r{Ok(_)=>Json(json!({"success":true,"message":"已添加"})),Err(e)=>Json(json!({"success":false,"message":format!("添加失败:{}",e)}))}
+    }else if body.tp=="card"{
+        let r=sqlx::query("INSERT INTO card_blacklist(card_key,reason) VALUES($1,$2) ON CONFLICT (COALESCE(merchant_id::text,'global'::text),card_key) DO UPDATE SET reason=$2").bind(&body.value).bind(&body.reason).execute(&state.pool).await;
+        match r{Ok(_)=>Json(json!({"success":true,"message":"已添加"})),Err(e)=>Json(json!({"success":false,"message":format!("添加失败:{}",e)}))}
     }else{
         let h=EncryptedFieldsOps::generate_hash(&body.value);
         let device_hint = if body.value.len() >= 4 { format!("{}****", &body.value[..4]) } else { "****".to_string() };
@@ -114,14 +118,17 @@ async fn add_blacklist(State(state):State<AppState>,Json(body):Json<AddBlacklist
 async fn remove_blacklist(State(state):State<AppState>,Path(id):Path<Uuid>)->Json<Value>{
     let _=sqlx::query("DELETE FROM ip_blacklist WHERE id=$1").bind(id).execute(&state.pool).await;
     let _=sqlx::query("DELETE FROM device_blacklist WHERE id=$1").bind(id).execute(&state.pool).await;
+    let _=sqlx::query("DELETE FROM card_blacklist WHERE id=$1").bind(id).execute(&state.pool).await;
     Json(json!({"success":true,"message":"已移除"}))
 }
 async fn blacklist_stats(State(state):State<AppState>)->Json<Value>{
     let ip:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM ip_blacklist").fetch_one(&state.pool).await.unwrap_or((0,));
     let dev:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM device_blacklist").fetch_one(&state.pool).await.unwrap_or((0,));
+    let card:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM card_blacklist").fetch_one(&state.pool).await.unwrap_or((0,));
     let ip_today:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM ip_blacklist WHERE created_at::date=CURRENT_DATE").fetch_one(&state.pool).await.unwrap_or((0,));
     let dev_today:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM device_blacklist WHERE created_at::date=CURRENT_DATE").fetch_one(&state.pool).await.unwrap_or((0,));
-    Json(json!({"success":true,"data":{"ip_total":ip.0,"dev_total":dev.0,"ip_today":ip_today.0,"dev_today":dev_today.0}}))
+    let card_today:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM card_blacklist WHERE created_at::date=CURRENT_DATE").fetch_one(&state.pool).await.unwrap_or((0,));
+    Json(json!({"success":true,"data":{"ip_total":ip.0,"dev_total":dev.0,"card_total":card.0,"ip_today":ip_today.0,"dev_today":dev_today.0,"card_today":card_today.0}}))
 }
 
 async fn list_whitelist(State(state):State<AppState>,Query(q):Query<BlacklistQuery>)->Json<Value>{
@@ -144,6 +151,7 @@ async fn remove_whitelist(State(state):State<AppState>,Path(id):Path<Uuid>)->Jso
 async fn whitelist_stats(State(state):State<AppState>)->Json<Value>{
     let ip:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM whitelist WHERE type='ip'").fetch_one(&state.pool).await.unwrap_or((0,));
     let dev:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM whitelist WHERE type='device'").fetch_one(&state.pool).await.unwrap_or((0,));
+    let card:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM whitelist WHERE type='card'").fetch_one(&state.pool).await.unwrap_or((0,));
     Json(json!({"success":true,"data":{"ip_total":ip.0,"dev_total":dev.0}}))
 }
 
@@ -204,4 +212,14 @@ async fn op_logs(State(state):State<AppState>,Query(q):Query<OpLogQuery>)->Json<
         "ip":ip,"created_at":created
     })).collect();
     Json(json!({"success":true,"data":list,"total":total.0,"page":page,"page_size":ps}))
+}
+
+async fn frontend_log(State(state):State<AppState>,Json(body):Json<serde_json::Value>)->Json<Value>{
+    let action=body.get("action").and_then(|v|v.as_str()).unwrap_or("other");
+    let module=body.get("module").and_then(|v|v.as_str()).unwrap_or("");
+    let detail=body.get("detail").and_then(|v|v.as_str()).unwrap_or("");
+    let user_type=body.get("user_type").and_then(|v|v.as_str()).unwrap_or("merchant");
+    let user_id=body.get("user_id").and_then(|v|v.as_str()).and_then(|s|Uuid::parse_str(s).ok());
+    crate::utils::op_log::log_operation(&state.pool, user_type, user_id, action, module, detail, "").await;
+    Json(json!({"success":true}))
 }

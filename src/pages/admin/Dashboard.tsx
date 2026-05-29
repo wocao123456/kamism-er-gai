@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { adminApi, healthApi } from '../../lib/api';
+import { adminApi, healthApi, logApi } from '../../lib/api';
 import { Activity, AlertTriangle, CreditCard, Database, Edit3, FileText, Key, Lock, LogIn, LogOut, MinusCircle, Package, PlusCircle, Rabbit, RefreshCw, ScrollText, Send, Server, Settings, Shield, Smartphone, Trash2, TrendingUp, Unlink, Users , Eye } from 'lucide-react';
 
 interface Stats {
@@ -53,7 +53,8 @@ function getActionIcon(action: string) {
     regenerate:   { el: <RefreshCw size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#a78bfa,#7c3aed)' },
     update_plan:  { el: <CreditCard size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#fbbf24,#d97706)' },
     update_status: { el: <AlertTriangle size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#f87171,#dc2626)' },
-    other:        { el: <Eye       size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#9ca3af,#4b5563)' },
+    view:          { el: <Eye       size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#818cf8,#4f46e5)' },
+    other:         { el: <Eye       size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#9ca3af,#4b5563)' },
   };
   const c = cfgs[action] || cfgs.other;
   return <span style={{ ...s, background: c.bg, color: '#fff' }}>{c.el}</span>;
@@ -69,6 +70,9 @@ function getActionLabel(action: string) {
     decrypt: ['解密','#34d399'], change_password: ['修改密码','#f87171'],
     update_profile: ['修改信息','#9ca3af'], regenerate: ['重新生成','#a78bfa'],
     update_plan: ['修改套餐','#fbbf24'], update_status: ['修改状态','#f87171'],
+    view: ['查看页面','#818cf8'],
+    refresh: ['刷新数据','#818cf8'],
+    open: ['打开模块','#818cf8'],
     other: ['其他操作','#9ca3af'],
   };
   const [t, c] = m[action] || m.other;
@@ -84,6 +88,7 @@ export default function AdminDashboard() {
   const [logsLoading, setLogsLoading] = useState(true);
 
   useEffect(() => {
+    logApi.log('view', 'platform', 'view_platform_overview');
     adminApi.getStats().then(res => {
       if (res.data.success) setStats(res.data.data);
     }).catch(() => {}).finally(() => setLoading(false));

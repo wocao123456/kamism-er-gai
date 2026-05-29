@@ -189,3 +189,17 @@ export const webhookApi = {
   delete: (appId: string) => api.delete(`/webhooks/app/${appId}`),
   list: () => api.get('/webhooks'),
 };
+
+// 前端操作日志 - 记录读操作（刷新/点开页面等）
+export const logApi = {
+  log: (action: string, module: string, detail: string) => {
+    const isAdmin = window.location.pathname.startsWith('/admin');
+    const url = isAdmin ? '/admin/frontend-log' : '/merchant/frontend-log';
+    const userId = isAdmin ? (JSON.parse(atob(localStorage.getItem('token')?.split('.')[1] || '{}')).sub || '') : (JSON.parse(atob(localStorage.getItem('token')?.split('.')[1] || '{}')).sub || '');
+    fetch(`${window.location.origin}${url}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+      body: JSON.stringify({ action, module, detail, user_type: isAdmin ? 'admin' : 'merchant', user_id: userId })
+    }).catch(() => {});
+  }
+};
