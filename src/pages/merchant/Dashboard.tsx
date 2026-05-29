@@ -29,43 +29,52 @@ const RANGE_TICK_FORMAT: Record<Range, (d: string) => string> = { week: (d) => d
 
 
 function getActionIcon(action: string) {
-  const iconStyle = { width: 14, height: 14 };
-  switch (action) {
-    case 'login': return <LogIn style={{...iconStyle, color: '#10b981'}} />;
-    case 'logout': return <LogOut style={{...iconStyle, color: '#f59e0b'}} />;
-    case 'register': return <PlusCircle style={{...iconStyle, color: '#10b981'}} />;
-    case 'create': return <PlusCircle style={{...iconStyle, color: '#3b82f6'}} />;
-    case 'update': return <Edit3 style={{...iconStyle, color: '#f59e0b'}} />;
-    case 'delete': return <Trash2 style={{...iconStyle, color: '#ef4444'}} />;
-    case 'add': return <PlusCircle style={{...iconStyle, color: '#3b82f6'}} />;
-    case 'remove': return <MinusCircle style={{...iconStyle, color: '#ef4444'}} />;
-    case 'send': return <Send style={{...iconStyle, color: '#8b5cf6'}} />;
-    case 'activate': return <Smartphone style={{...iconStyle, color: '#10b981'}} />;
-    case 'verify': return <Shield style={{...iconStyle, color: '#06b6d4'}} />;
-    case 'unbind': return <Unlink style={{...iconStyle, color: '#f59e0b'}} />;
-    case 'heartbeat': return <Activity style={{...iconStyle, color: '#6366f1'}} />;
-    case 'sign': return <FileText style={{...iconStyle, color: '#8b5cf6'}} />;
-    case 'encrypt': return <Lock style={{...iconStyle, color: '#06b6d4'}} />;
-    case 'decrypt': return <Lock style={{...iconStyle, color: '#10b981'}} />;
-    case 'change_password': return <Lock style={{...iconStyle, color: '#ef4444'}} />;
-    case 'update_profile': return <Settings style={{...iconStyle, color: '#6b7280'}} />;
-    case 'regenerate': return <RefreshCw style={{...iconStyle, color: '#8b5cf6'}} />;
-    case 'update_plan': return <CreditCard style={{...iconStyle, color: '#f59e0b'}} />;
-    case 'update_status': return <AlertTriangle style={{...iconStyle, color: '#ef4444'}} />;
-    default: return <Eye style={{...iconStyle, color: '#6b7280'}} />;
-  }
+  const s: React.CSSProperties = {
+    width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    borderRadius: 6, flexShrink: 0, transition: 'transform 0.15s',
+  };
+  const cfgs: Record<string, { el: JSX.Element; bg: string }> = {
+    login:        { el: <LogIn     size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#34d399,#059669)' },
+    logout:       { el: <LogOut    size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#fbbf24,#d97706)' },
+    register:     { el: <PlusCircle size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#34d399,#059669)' },
+    create:       { el: <PlusCircle size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#60a5fa,#2563eb)' },
+    update:       { el: <Edit3     size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#fbbf24,#d97706)' },
+    delete:       { el: <Trash2    size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#f87171,#dc2626)' },
+    add:          { el: <PlusCircle size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#60a5fa,#2563eb)' },
+    remove:       { el: <MinusCircle size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#f87171,#dc2626)' },
+    send:         { el: <Send      size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#a78bfa,#7c3aed)' },
+    activate:     { el: <Smartphone size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#34d399,#059669)' },
+    verify:       { el: <Shield    size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#22d3ee,#0891b2)' },
+    unbind:       { el: <Unlink    size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#fbbf24,#d97706)' },
+    heartbeat:    { el: <Activity  size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#818cf8,#4f46e5)' },
+    sign:         { el: <FileText  size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#a78bfa,#7c3aed)' },
+    encrypt:      { el: <Lock      size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#22d3ee,#0891b2)' },
+    decrypt:      { el: <Lock      size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#34d399,#059669)' },
+    change_password: { el: <Lock   size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#f87171,#dc2626)' },
+    update_profile:  { el: <Settings size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#9ca3af,#4b5563)' },
+    regenerate:   { el: <RefreshCw size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#a78bfa,#7c3aed)' },
+    update_plan:  { el: <CreditCard size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#fbbf24,#d97706)' },
+    update_status: { el: <AlertTriangle size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#f87171,#dc2626)' },
+    other:        { el: <Eye       size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#9ca3af,#4b5563)' },
+  };
+  const c = cfgs[action] || cfgs.other;
+  return <span style={{ ...s, background: c.bg, color: '#fff' }}>{c.el}</span>;
 }
 
 function getActionLabel(action: string) {
-  const labels: Record<string, string> = {
-    login: '登录', logout: '退出登录', register: '注册', create: '新建', update: '修改',
-    delete: '删除', add: '添加', remove: '移除', send: '发送', activate: '激活',
-    verify: '验证', unbind: '解绑', heartbeat: '心跳', sign: '签名', encrypt: '加密',
-    decrypt: '解密', change_password: '修改密码', update_profile: '修改信息',
-    regenerate: '重新生成', update_plan: '修改套餐', update_status: '修改状态',
-    other: '其他操作',
+  const m: Record<string, [string, string]> = {
+    login: ['登录','#34d399'], logout: ['退出登录','#fbbf24'], register: ['注册','#34d399'],
+    create: ['新建','#60a5fa'], update: ['修改','#fbbf24'], delete: ['删除','#f87171'],
+    add: ['添加','#60a5fa'], remove: ['移除','#f87171'], send: ['发送','#a78bfa'],
+    activate: ['激活','#34d399'], verify: ['验证','#22d3ee'], unbind: ['解绑','#fbbf24'],
+    heartbeat: ['心跳','#818cf8'], sign: ['签名','#a78bfa'], encrypt: ['加密','#22d3ee'],
+    decrypt: ['解密','#34d399'], change_password: ['修改密码','#f87171'],
+    update_profile: ['修改信息','#9ca3af'], regenerate: ['重新生成','#a78bfa'],
+    update_plan: ['修改套餐','#fbbf24'], update_status: ['修改状态','#f87171'],
+    other: ['其他操作','#9ca3af'],
   };
-  return labels[action] || action;
+  const [t, c] = m[action] || m.other;
+  return <span style={{ color: c, fontWeight: 500, fontSize: 12 }}>{t}</span>;
 }
 
 export default function MerchantDashboard() {
@@ -170,13 +179,17 @@ export default function MerchantDashboard() {
         ) : (
           <div style={{ maxHeight: 200, overflow: 'auto' }}>
             {opLogs.map((log: any, idx: number) => (
-              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {getActionIcon(log.action)}
-                  {getActionLabel(log.action)}
-                  {log.module && <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>({log.module})</span>}
+                  <span style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {getActionLabel(log.action)}
+                      {log.module && <span style={{ color: 'var(--text-muted)', fontSize: 11, background: 'var(--bg)', padding: '1px 6px', borderRadius: 4, border: '1px solid var(--border)' }}>{log.module}</span>}
+                    </span>
+                  </span>
                 </span>
-                <span style={{ color: 'var(--text-muted)' }}>{new Date(log.created_at).toLocaleString()}</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0, marginLeft: 12 }}>{new Date(log.created_at).toLocaleString()}</span>
               </div>
             ))}
           </div>
