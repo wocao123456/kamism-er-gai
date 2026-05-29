@@ -36,7 +36,7 @@ export default function ApiManage() {
   const [authStatus, setAuthStatus] = useState('idle');
   const [authExpiresAt, setAuthExpiresAt] = useState(0);
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
-  const [stats, setStats] = useState<{today_success:number;today_failed:number;total:number;rawTotal:number;todayCount:number;yesterdayCount:number}>({ today_success: 0, today_failed: 0, total: 0, rawTotal: 0, todayCount: 0, yesterdayCount: 0 });
+  const [stats, setStats] = useState<{total:number;rawTotal:number;todayCount:number;yesterdayCount:number}>({ total: 0, rawTotal: 0, todayCount: 0, yesterdayCount: 0 });
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
   const [logPage, setLogPage] = useState(1);
@@ -67,12 +67,8 @@ export default function ApiManage() {
       if (cardFilter) {
         merged = merged.filter((l: any) => (l.card_key || '').toLowerCase().includes(cardFilter.toLowerCase()));
       }
-      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
       const rawCount = lD.data?.data?.length || 0;
-      const todayMerged = merged.filter((l: any) => new Date(l.created_at) >= todayStart);
-      const successMerged = todayMerged.filter((l: any) => l.status === 'success').length;
-      const failMerged = todayMerged.filter((l: any) => l.status !== 'success').length;
-      setStats({ today_success: lD.data?.todaySuccess || successMerged, today_failed: lD.data?.todayFailed || failMerged, total: merged.length, rawTotal: lD.data?.rawTotal || rawCount, todayCount: lD.data?.todayCount || 0, yesterdayCount: lD.data?.yesterdayCount || 0 });
+      setStats({ total: merged.length, rawTotal: lD.data?.rawTotal || rawCount, todayCount: lD.data?.todayCount || 0, yesterdayCount: lD.data?.yesterdayCount || 0 });
       setRecentLogs(merged);
       setLogPage(1);
     } catch (e) {}
@@ -178,10 +174,10 @@ export default function ApiManage() {
         </div>
       </div>
 
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden', marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}><div className="table-wrap" style={{ margin: 0 }}><table><thead><tr><th>名称</th><th style={{ width: 120 }}>状态</th><th style={{ width: 100 }}>操作</th></tr></thead><tbody>{loading ? Array.from({ length: 3 }).map((_, i) => (<tr key={i}><td><span className="skeleton" style={{ width: '50%', height: 16 }} /></td><td><span className="skeleton" style={{ width: 60, height: 16 }} /></td><td><span className="skeleton" style={{ width: 64, height: 16 }} /></td></tr>)) : keys.length === 0 ? <tr><td colSpan={3}><div className="empty-state">��� 暂无密钥</div></td></tr> : keys.map((k: any) => (<tr key={k.id}><td style={{ fontWeight: 600 }}>{k.name || '(未命名)'}</td><td><span onClick={() => toggleKey(k.id)} style={{ cursor: 'pointer', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 10, background: k.status === 'active' ? 'rgba(52,211,153,0.12)' : 'rgba(156,163,175,0.12)', color: k.status === 'active' ? '#34d399' : '#9ca3af' }}>{k.status === 'active' ? '● 启用' : '○ 禁用'}</span></td><td><div style={{ display: 'flex', gap: 6 }}><button className="btn btn-sm btn-ghost" onClick={() => openEdit(k)}><Settings size={13} /></button><button className="btn btn-sm btn-ghost" style={{ color: '#f87171' }} onClick={() => deleteKey(k.id)}><Trash2 size={13} /></button></div></td></tr>))}</tbody></table></div></div>
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden', marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}><div className="table-wrap" style={{ margin: 0 }}><table><thead><tr><th>名称</th><th style={{ width: 120 }}>状态</th><th style={{ width: 100 }}>操作</th></tr></thead><tbody>{loading ? Array.from({ length: 3 }).map((_, i) => (<tr key={i}><td><span className="skeleton" style={{ width: '50%', height: 16 }} /></td><td><span className="skeleton" style={{ width: 60, height: 16 }} /></td><td><span className="skeleton" style={{ width: 64, height: 16 }} /></td></tr>)) : keys.length === 0 ? <tr><td colSpan={3}><div className="empty-state">暂无密钥</div></td></tr> : keys.map((k: any) => (<tr key={k.id}><td style={{ fontWeight: 600 }}>{k.name || '(未命名)'}</td><td><span onClick={() => toggleKey(k.id)} style={{ cursor: 'pointer', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 10, background: k.status === 'active' ? 'rgba(52,211,153,0.12)' : 'rgba(156,163,175,0.12)', color: k.status === 'active' ? '#34d399' : '#9ca3af' }}>{k.status === 'active' ? '● 启用' : '○ 禁用'}</span></td><td><div style={{ display: 'flex', gap: 6 }}><button className="btn btn-sm btn-ghost" onClick={() => openEdit(k)}><Settings size={13} /></button><button className="btn btn-sm btn-ghost" style={{ color: '#f87171' }} onClick={() => deleteKey(k.id)}><Trash2 size={13} /></button></div></td></tr>))}</tbody></table></div></div>
 
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px 20px', marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-      <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 14 }}>昨天 <strong style={{ color: 'var(--accent)' }}>{stats.yesterdayCount}</strong> 条 · 今天 <strong style={{ color: 'var(--accent)' }}>{stats.todayCount}</strong> 条 · 合并 <strong style={{ color: 'var(--accent)' }}>{stats.total}</strong> ✅ <strong style={{ color: '#34d399' }}>{stats.today_success}</strong> ❌ <strong style={{ color: '#f87171' }}>{stats.today_failed}</strong> 条</div>
+      <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 14 }}>昨天 <strong style={{ color: 'var(--accent)' }}>{stats.yesterdayCount}</strong> 条 · 今天 <strong style={{ color: 'var(--accent)' }}>{stats.todayCount}</strong> 条 · 合并 <strong style={{ color: 'var(--accent)' }}>{stats.total}</strong> </div>
         {recentLogs.length === 0 ? (<div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: 13 }}>暂无调用记录</div>) : (
           <><div style={{ overflowX: 'auto' }}><table style={{ width: '100%', fontSize: 12 }}><thead><tr><th style={{ width: 70, textAlign: 'left' }}>时间</th><th style={{ width: 100, textAlign: 'left' }}>项目</th><th style={{ textAlign: 'left' }}>卡密</th></tr></thead><tbody>
             {pagedLogs.map((l: any) => (<Fragment key={l.id}><tr onClick={() => { setExpandedLogId(expandedLogId === l.id ? null : l.id); setExpandedSubId(null); }} style={{ cursor: 'pointer', transition: 'background 0.2s', background: expandedLogId === l.id ? 'var(--bg-hover)' : 'transparent' }}><td style={{ color: 'var(--text-muted)', fontSize: 11 }}>{new Date(l.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</td><td style={{ fontWeight: 500 }}>{l.key_name}</td><td><code style={{ fontSize: 11, color: l.status === 'success' ? 'var(--text)' : '#f87171' }}>{l.card_key || '—'}</code></td></tr>
