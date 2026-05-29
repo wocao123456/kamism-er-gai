@@ -96,7 +96,7 @@ fn classify_action(method: &Method, path: &str, body: Option<&JsonValue>) -> (St
         return ("login".into(), if email.is_empty() { "登录系统".into() } else { format!("登录系统 ({})", email) });
     }
     if path.contains("/auth/register") {
-        return ("register".into(), format!("注册新账号 ({})", email));
+        return ("register".into(), "注册新账号".into());
     }
     if path.contains("/auth/logout") { return ("logout".into(), "退出登录".into()); }
     if path.contains("/auth/reset-password") { return ("reset_password".into(), "重置密码".into()); }
@@ -112,16 +112,16 @@ fn classify_action(method: &Method, path: &str, body: Option<&JsonValue>) -> (St
 
     // ── 管理员 - 商户 ──
     if path.contains("/admin/merchants") && path.contains("/plan") {
-        return ("update".into(), format!("修改商户套餐为 {}", plan));
+        return ("update".into(), "修改商户套餐".into());
     }
     if path.contains("/admin/merchants") && path.contains("/status") {
-        return ("update".into(), format!("修改商户状态为 {}", status));
+        return ("update".into(), "修改商户状态".into());
     }
     if path.contains("/admin/merchants") {
         return match *method {
-            Method::POST => ("create".into(), format!("新建商户 ({})", email)),
-            Method::PUT => ("update".into(), format!("修改商户「{}」", if name.is_empty() { sid } else { &name })),
-            Method::DELETE => ("delete".into(), format!("删除商户 {}", sid)),
+            Method::POST => ("create".into(), "新建商户".into()),
+            Method::PUT => ("update".into(), "修改商户".into()),
+            Method::DELETE => ("delete".into(), "删除商户".into()),
             _ => ("view".into(), "查看商户列表".into()),
         };
     }
@@ -129,15 +129,15 @@ fn classify_action(method: &Method, path: &str, body: Option<&JsonValue>) -> (St
     // ── 管理员 - 黑白名单 ──
     if path.contains("/admin/blacklist") {
         return match *method {
-            Method::POST => ("add".into(), format!("添加{}「{}」到黑名单", tp_label(&tp), value)),
-            Method::DELETE => ("remove".into(), format!("从黑名单移除 {}", sid)),
+            Method::POST => ("add".into(), "添加到黑名单".into()),
+            Method::DELETE => ("remove".into(), "从黑名单移除".into()),
             _ => ("view".into(), "查看黑名单列表".into()),
         };
     }
     if path.contains("/admin/whitelist") {
         return match *method {
-            Method::POST => ("add".into(), format!("添加{}「{}」到白名单", tp_label(&tp), value)),
-            Method::DELETE => ("remove".into(), format!("从白名单移除 {}", sid)),
+            Method::POST => ("add".into(), "添加到白名单".into()),
+            Method::DELETE => ("remove".into(), "从白名单移除".into()),
             _ => ("view".into(), "查看白名单列表".into()),
         };
     }
@@ -145,7 +145,7 @@ fn classify_action(method: &Method, path: &str, body: Option<&JsonValue>) -> (St
     // ── 管理员 - 告警 ──
     if path.contains("/admin/alerts") {
         return match *method {
-            Method::POST | Method::PATCH => ("update".into(), format!("标记告警 {} 为已读", sid)),
+            Method::POST | Method::PATCH => ("update".into(), "标记告警为已读".into()),
             _ => ("view".into(), "查看异常告警列表".into()),
         };
     }
@@ -159,7 +159,7 @@ fn classify_action(method: &Method, path: &str, body: Option<&JsonValue>) -> (St
     }
     if path.contains("/admin/risk") {
         return match *method {
-            Method::POST => ("update".into(), format!("修改风控设置「{}」", bf(body, "key"))),
+            Method::POST => ("update".into(), "修改风控设置".into()),
             _ => ("view".into(), "查看风控设置".into()),
         };
     }
@@ -167,7 +167,7 @@ fn classify_action(method: &Method, path: &str, body: Option<&JsonValue>) -> (St
         return match *method {
             Method::POST => ("send".into(), format!("发送消息「{}」", title)),
             Method::PUT => ("update".into(), format!("修改消息「{}」", title)),
-            Method::DELETE => ("delete".into(), format!("删除消息 {}", sid)),
+            Method::DELETE => ("delete".into(), "删除消息".into()),
             _ => ("view".into(), "查看消息列表".into()),
         };
     }
@@ -191,7 +191,7 @@ fn classify_action(method: &Method, path: &str, body: Option<&JsonValue>) -> (St
         return match *method {
             Method::POST => ("create".into(), format!("新建应用「{}」", name)),
             Method::PUT => ("update".into(), format!("修改应用「{}」", name)),
-            Method::DELETE => ("delete".into(), format!("删���应用 {}", sid)),
+            Method::DELETE => ("delete".into(), "操作成功".into()),
             _ => ("view".into(), "查看应用列表".into()),
         };
     }
@@ -218,8 +218,8 @@ fn classify_action(method: &Method, path: &str, body: Option<&JsonValue>) -> (St
                 if ck.is_empty() { ("create".into(), "创建卡密".into()) }
                 else { ("create".into(), format!("创建卡密 {}", ck)) }
             }
-            Method::PUT => ("update".into(), format!("修改卡密 {}", sid)),
-            Method::DELETE => ("delete".into(), format!("删除卡密 {}", sid)),
+            Method::PUT => ("update".into(), "修改卡密".into()),
+            Method::DELETE => ("delete".into(), "删除卡密".into()),
             _ => ("view".into(), "查看卡密列表".into()),
         };
     }
@@ -228,8 +228,8 @@ fn classify_action(method: &Method, path: &str, body: Option<&JsonValue>) -> (St
     if path.contains("/keys") {
         return match *method {
             Method::POST => ("create".into(), format!("为应用 {} 生成 API Key", app_id)),
-            Method::PUT => ("update".into(), format!("修改 API Key {}", sid)),
-            Method::DELETE => ("delete".into(), format!("删除 API Key {}", sid)),
+            Method::PUT => ("update".into(), "修改 API Key".into()),
+            Method::DELETE => ("delete".into(), "删除 API Key".into()),
             _ => ("view".into(), "查看 API Key 列表".into()),
         };
     }
@@ -238,14 +238,14 @@ fn classify_action(method: &Method, path: &str, body: Option<&JsonValue>) -> (St
     if path.contains("/blacklist") && !path.contains("/admin/") {
         return match *method {
             Method::POST => ("add".into(), format!("添加{}「{}」到黑名单", tp_label(&tp), value)),
-            Method::DELETE => ("remove".into(), format!("从黑名单移除 {}", sid)),
+            Method::DELETE => ("remove".into(), "操作成功".into()),
             _ => ("view".into(), "查看黑名单列表".into()),
         };
     }
     if path.contains("/whitelist") && !path.contains("/admin/") {
         return match *method {
             Method::POST => ("add".into(), format!("添加{}「{}」到白名单", tp_label(&tp), value)),
-            Method::DELETE => ("remove".into(), format!("从白名单移除 {}", sid)),
+            Method::DELETE => ("remove".into(), "操作成功".into()),
             _ => ("view".into(), "查看白名单列表".into()),
         };
     }

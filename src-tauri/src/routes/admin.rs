@@ -81,7 +81,11 @@ async fn get_stats(State(state):State<AppState>)->Json<Value>{
 
 async fn list_blacklist(State(state):State<AppState>,Query(q):Query<BlacklistQuery>)->Json<Value>{
     let page=q.page.unwrap_or(1).max(1);let ps=q.page_size.unwrap_or(20).min(100);let offset=(page-1)*ps;let tp=q.tp.as_deref().unwrap_or("");
-    let(total,rows):(i64,Vec<Value>)=if tp=="device"{
+    let(total,rows):(i64,Vec<Value>)=if tp=="card"{
+        let t:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM card_blacklist").fetch_one(&state.pool).await.unwrap_or((0,));
+        let d:Vec<(Uuid,String,Option<String>,Option<chrono::DateTime<chrono::Utc>>,chrono::DateTime<chrono::Utc>)>=sqlx::query_as("SELECT id,card_key,reason,blocked_until,created_at FROM card_blacklist ORDER BY created_at DESC LIMIT $1 OFFSET $2").bind(ps).bind(offset).fetch_all(&state.pool).await.unwrap_or_default();
+        (t.0,d.into_iter().map(|(id,ck,r,b,c)|json!({"id":id,"type":"card","value":ck,"reason":r,"blocked_until":b,"created_at":c})).collect())
+    }else if tp=="device"{
         let t:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM device_blacklist").fetch_one(&state.pool).await.unwrap_or((0,));
         let d:Vec<(Uuid,String,Option<String>,Option<String>,Option<chrono::DateTime<chrono::Utc>>,chrono::DateTime<chrono::Utc>)>=sqlx::query_as("SELECT id,device_id_hash,device_hint,reason,blocked_until,created_at FROM device_blacklist ORDER BY created_at DESC LIMIT $1 OFFSET $2").bind(ps).bind(offset).fetch_all(&state.pool).await.unwrap_or_default();
         (t.0,d.into_iter().map(|(id,h,dh,r,b,c)|json!({"id":id,"type":"device","value":dh.unwrap_or_else(||format!("{}...",&h[..16])),"reason":r,"blocked_until":b,"created_at":c})).collect())
@@ -96,8 +100,11 @@ async fn list_blacklist(State(state):State<AppState>,Query(q):Query<BlacklistQue
         let dev_rows:Vec<(Uuid,String,Option<String>,Option<String>,Option<chrono::DateTime<chrono::Utc>>,chrono::DateTime<chrono::Utc>)>=sqlx::query_as("SELECT id,device_id_hash,device_hint,reason,blocked_until,created_at FROM device_blacklist ORDER BY created_at DESC LIMIT $1 OFFSET $2").bind(ps).bind(offset).fetch_all(&state.pool).await.unwrap_or_default();
         let mut items:Vec<Value>=ip_rows.into_iter().map(|(id,ip,r,b,c)|json!({"id":id,"type":"ip","value":ip,"reason":r,"blocked_until":b,"created_at":c})).collect();
         items.extend(dev_rows.into_iter().map(|(id,h,dh,r,b,c)|json!({"id":id,"type":"device","value":dh.unwrap_or_else(||format!("{}...",&h[..16])),"reason":r,"blocked_until":b,"created_at":c})));
+        let card_t:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM card_blacklist").fetch_one(&state.pool).await.unwrap_or((0,));
+        let card_rows:Vec<(Uuid,String,Option<String>,Option<chrono::DateTime<chrono::Utc>>,chrono::DateTime<chrono::Utc>)>=sqlx::query_as("SELECT id,card_key,reason,blocked_until,created_at FROM card_blacklist ORDER BY created_at DESC LIMIT $1 OFFSET $2").bind(ps).bind(offset).fetch_all(&state.pool).await.unwrap_or_default();
+        items.extend(card_rows.into_iter().map(|(id,ck,r,b,c)|json!({"id":id,"type":"card","value":ck,"reason":r,"blocked_until":b,"created_at":c})));
         items.sort_by(|a,b|b["created_at"].as_str().cmp(&a["created_at"].as_str()));
-        (ip_t.0+dev_t.0,items)
+        (ip_t.0+dev_t.0+card_t.0,items)
     };
     Json(json!({"success":true,"data":rows,"total":total,"page":page,"page_size":ps}))
 }
@@ -152,7 +159,7 @@ async fn whitelist_stats(State(state):State<AppState>)->Json<Value>{
     let ip:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM whitelist WHERE type='ip'").fetch_one(&state.pool).await.unwrap_or((0,));
     let dev:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM whitelist WHERE type='device'").fetch_one(&state.pool).await.unwrap_or((0,));
     let card:(i64,)=sqlx::query_as("SELECT COUNT(*) FROM whitelist WHERE type='card'").fetch_one(&state.pool).await.unwrap_or((0,));
-    Json(json!({"success":true,"data":{"ip_total":ip.0,"dev_total":dev.0}}))
+    Json(json!({"success":true,"data":{"ip_total":ip.0,"dev_total":dev.0,"card_total":card.0}}))
 }
 
 
