@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { merchantApi, activationsApi } from '../../lib/api';
-import { Key, Activity, Package, Monitor, Globe, ScrollText, LogIn, LogOut, PlusCircle, MinusCircle, Edit3, Trash2, Shield, RefreshCw, Settings, Send, CreditCard, Smartphone, AlertTriangle, FileText, Eye, Unlink, Lock } from 'lucide-react';
+import { Activity, AlertTriangle, CreditCard, Edit3, FileText, Lock, LogIn, LogOut, MinusCircle, PlusCircle, RefreshCw, Send, Settings, Shield, Smartphone, Trash2, Unlink , Eye } from 'lucide-react';
 import {
   ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
