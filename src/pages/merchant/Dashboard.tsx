@@ -33,7 +33,7 @@ function getActionIcon(action: string) {
     width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
     borderRadius: 6, flexShrink: 0, transition: 'transform 0.15s',
   };
-  const cfgs: Record<string, { el: JSX.Element; bg: string }> = {
+  const cfgs: Record<string, { el: React.ReactNode; bg: string }> = {
     login:        { el: <LogIn     size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#34d399,#059669)' },
     logout:       { el: <LogOut    size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#fbbf24,#d97706)' },
     register:     { el: <PlusCircle size={11} strokeWidth={2.5} />, bg: 'linear-gradient(135deg,#34d399,#059669)' },
