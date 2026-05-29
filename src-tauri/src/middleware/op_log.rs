@@ -45,27 +45,125 @@ pub async fn op_log_middleware(
 }
 
 fn classify_action(method: &Method, path: &str) -> (String, String) {
+    // 认证相关
     if path.contains("/auth/login") { return ("login".into(), "登录系统".into()); }
     if path.contains("/auth/register") { return ("register".into(), "注册新账号".into()); }
     if path.contains("/auth/logout") { return ("logout".into(), "退出登录".into()); }
     if path.contains("/auth/reset-password") { return ("reset_password".into(), "重置密码".into()); }
+
+    // 前端主动上报的日志
+    if path.contains("/frontend-log") {
+        // 这个由请求体决定，这里先返回一个占位
+        return ("other".into(), "前端操作".into());
+    }
+
+    // 管理员 - 商户管理
     if path.contains("/admin/merchants") && path.contains("/plan") { return ("update_plan".into(), "修改商户套餐".into()); }
     if path.contains("/admin/merchants") && path.contains("/status") { return ("update_status".into(), "修改商户状态".into()); }
     if path.contains("/admin/merchants") {
         match *method {
             Method::POST => return ("create".into(), "新建商户".into()),
             Method::PUT => return ("update".into(), "修改商户信息".into()),
+            Method::DELETE => return ("delete".into(), "删除商户".into()),
+            Method::GET => return ("view".into(), "查看商户列表".into()),
             _ => {}
         }
     }
+
+    // 管理员 - 黑白名单
+    if path.contains("/admin/blacklist") {
+        match *method {
+            Method::POST => return ("add".into(), "添加黑名单".into()),
+            Method::DELETE => return ("remove".into(), "移除黑名单".into()),
+            Method::GET => return ("view".into(), "查看黑名单".into()),
+            _ => {}
+        }
+    }
+    if path.contains("/admin/whitelist") {
+        match *method {
+            Method::POST => return ("add".into(), "添加白名单".into()),
+            Method::DELETE => return ("remove".into(), "移除白名单".into()),
+            Method::GET => return ("view".into(), "查看白名单".into()),
+            _ => {}
+        }
+    }
+
+    // 管理员 - 告警
+    if path.contains("/admin/alerts") {
+        match *method {
+            Method::POST => return ("update".into(), "标记告警已读".into()),
+            Method::GET => return ("view".into(), "查看异常告警".into()),
+            _ => {}
+        }
+    }
+
+    // 管理员 - 套餐配置
+    if path.contains("/admin/plan") {
+        match *method {
+            Method::POST => return ("update".into(), "修改套餐配置".into()),
+            Method::GET => return ("view".into(), "查看套餐配置".into()),
+            _ => {}
+        }
+    }
+
+    // 管理员 - 风控设置
+    if path.contains("/admin/risk") {
+        match *method {
+            Method::POST => return ("update".into(), "修改风控设置".into()),
+            Method::GET => return ("view".into(), "查看风控设置".into()),
+            _ => {}
+        }
+    }
+
+    // 管理员 - 消息管理
+    if path.contains("/admin/messages") {
+        match *method {
+            Method::POST => return ("send".into(), "发送消息".into()),
+            Method::PUT => return ("update".into(), "修改消息".into()),
+            Method::DELETE => return ("delete".into(), "删除消息".into()),
+            Method::GET => return ("view".into(), "查看消息列表".into()),
+            _ => {}
+        }
+    }
+
+    // 管理员 - 操作日志
+    if path.contains("/admin/op-logs") {
+        match *method {
+            Method::GET => return ("view".into(), "查看全局操作日志".into()),
+            _ => {}
+        }
+    }
+
+    // 管理员 - 统计
+    if path.contains("/admin/stats") {
+        return ("view".into(), "查看平台统计数据".into());
+    }
+
+    // 商户相关
+    if path.contains("/merchant/change-password") { return ("change_password".into(), "修改登录密码".into()); }
+    if path.contains("/merchant/regenerate") { return ("regenerate".into(), "重新生成API Key".into()); }
+    if path.contains("/merchant/profile") {
+        match *method {
+            Method::PUT => return ("update".into(), "修改账号信息".into()),
+            Method::GET => return ("view".into(), "查看账号信息".into()),
+            _ => {}
+        }
+    }
+    if path.contains("/merchant/op-logs") { return ("view".into(), "查看操作日志".into()); }
+    if path.contains("/merchant/dashboard-stats") { return ("view".into(), "查看商户统计数据".into()); }
+
+    // 应用管理
     if path.contains("/apps") {
         match *method {
             Method::POST => return ("create".into(), "新建应用".into()),
             Method::PUT => return ("update".into(), "修改应用信息".into()),
             Method::DELETE => return ("delete".into(), "删除应用".into()),
+            Method::GET => return ("view".into(), "查看应用列表".into()),
             _ => {}
         }
     }
+
+    // 卡密管理
     if path.contains("/cards/batch") {
         match *method {
             Method::POST => return ("create".into(), "批量创建卡密".into()),
@@ -76,62 +174,74 @@ fn classify_action(method: &Method, path: &str) -> (String, String) {
     if path.contains("/cards") {
         match *method {
             Method::POST => return ("create".into(), "创建卡密".into()),
-            Method::PUT => return ("update".into(), "修改卡密".into()),
+            Method::PUT => return ("update".into(), "修改卡密信息".into()),
             Method::DELETE => return ("delete".into(), "删除卡密".into()),
+            Method::GET => return ("view".into(), "查看卡密列表".into()),
             _ => {}
         }
     }
+
+    // API管理
     if path.contains("/keys") {
         match *method {
-            Method::POST => return ("create".into(), "新建API密钥".into()),
-            Method::PUT => return ("update".into(), "修改API密钥".into()),
-            Method::DELETE => return ("delete".into(), "删除API密钥".into()),
+            Method::POST => return ("create".into(), "新建API Key".into()),
+            Method::PUT => return ("update".into(), "修改API Key".into()),
+            Method::DELETE => return ("delete".into(), "删除API Key".into()),
+            Method::GET => return ("view".into(), "查看API Key列表".into()),
             _ => {}
         }
     }
-    if path.contains("/merchant/regenerate") { return ("regenerate".into(), "重新生成API Key".into()); }
-    if path.contains("/blacklist") && !path.contains("/ips") && !path.contains("/devices") && !path.contains("/alerts") {
+
+    // 风控管理（商户）
+    if path.contains("/blacklist") && !path.contains("/admin/") {
         match *method {
-            Method::POST => return ("add".into(), "添加黑名单".into()),
-            Method::DELETE => return ("remove".into(), "移除黑名单".into()),
+            Method::POST => return ("add".into(), "添加黑名单规则".into()),
+            Method::DELETE => return ("remove".into(), "移除黑名单规则".into()),
+            Method::GET => return ("view".into(), "查看黑名单列表".into()),
             _ => {}
         }
     }
-    if path.contains("/whitelist") {
+    if path.contains("/whitelist") && !path.contains("/admin/") {
         match *method {
-            Method::POST => return ("add".into(), "添加白名单".into()),
-            Method::DELETE => return ("remove".into(), "移除白名单".into()),
+            Method::POST => return ("add".into(), "添加白名单规则".into()),
+            Method::DELETE => return ("remove".into(), "移除白名单规则".into()),
+            Method::GET => return ("view".into(), "查看白名单列表".into()),
             _ => {}
         }
     }
-    if path.contains("/merchant/change-password") { return ("change_password".into(), "修改密码".into()); }
-    if path.contains("/merchant/profile") { return ("update_profile".into(), "修改账号信息".into()); }
-    if path.contains("/messages") {
+
+    // 消息中心（商户）
+    if path.contains("/messages") && !path.contains("/admin/") {
         match *method {
-            Method::POST => return ("send".into(), "发送消息".into()),
-            Method::PUT => return ("update".into(), "修改消息".into()),
-            Method::DELETE => return ("delete".into(), "删除消息".into()),
+            Method::GET => return ("view".into(), "查看消息列表".into()),
+            Method::PUT => return ("update".into(), "修改消息状态".into()),
             _ => {}
         }
     }
-    if path.contains("/alerts") {
+
+    // 激活记录
+    if path.contains("/activations") {
         match *method {
-            Method::PUT => return ("update".into(), "修改告警状态".into()),
-            Method::DELETE => return ("delete".into(), "删除告警".into()),
+            Method::GET => return ("view".into(), "查看激活记录".into()),
             _ => {}
         }
     }
-    if path.contains("/v1/activate") { return ("activate".into(), "接口激活".into()); }
-    if path.contains("/v1/verify") { return ("verify".into(), "接口验证".into()); }
-    if path.contains("/v1/unbind") { return ("unbind".into(), "接口解绑".into()); }
-    if path.contains("/v1/heartbeat") { return ("heartbeat".into(), "接口心跳".into()); }
-    if path.contains("/ts/sign") { return ("sign".into(), "接口签名".into()); }
-    if path.contains("/ts/encrypt") { return ("encrypt".into(), "接口加密".into()); }
-    if path.contains("/ts/decrypt") { return ("decrypt".into(), "接口解密".into()); }
+
+    // 接口调用
+    if path.contains("/v1/activate") { return ("activate".into(), "接口调用-激活卡密".into()); }
+    if path.contains("/v1/verify") { return ("verify".into(), "接口调用-验证卡密".into()); }
+    if path.contains("/v1/unbind") { return ("unbind".into(), "接口调用-解绑设备".into()); }
+    if path.contains("/v1/heartbeat") { return ("heartbeat".into(), "接口调用-设备心跳".into()); }
+    if path.contains("/ts/sign") { return ("sign".into(), "接口调用-参数签名".into()); }
+    if path.contains("/ts/encrypt") { return ("encrypt".into(), "接口调用-数据加密".into()); }
+    if path.contains("/ts/decrypt") { return ("decrypt".into(), "接口调用-数据解密".into()); }
+
+    // 兜底
     match *method {
-        Method::POST => ("create".into(), format!("新建数据: {}", path)),
-        Method::PUT | Method::PATCH => ("update".into(), format!("修改数据: {}", path)),
-        Method::DELETE => ("delete".into(), format!("删除数据: {}", path)),
+        Method::GET => ("view".into(), format!("查看: {}", path)),
+        Method::POST => ("create".into(), format!("新建: {}", path)),
+        Method::PUT | Method::PATCH => ("update".into(), format!("修改: {}", path)),
+        Method::DELETE => ("delete".into(), format!("删除: {}", path)),
         _ => ("other".into(), path.to_string()),
     }
 }
