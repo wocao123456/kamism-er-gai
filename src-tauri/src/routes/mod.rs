@@ -14,6 +14,8 @@ pub mod blacklist;
 pub mod agent;
 pub mod api_keys;
 pub mod api_ts;
+pub mod oauth;
+pub mod profile;
 
 use axum::{Router, middleware};
 use crate::middleware::auth::AppState;
@@ -36,6 +38,8 @@ pub fn routes(state: AppState) -> Router<AppState> {
         .nest("/api/health", health)
         .nest("/blacklist", blacklist::blacklist_router(state.clone()))
         .nest("/agent", agent::agent_router(state.clone()))
+        .nest("/auth/oauth", oauth::oauth_router(state.clone()))
+        .nest("/profile", profile::profile_router(state.clone()))
         .nest("/", api_keys::api_keys_router(state.clone()))
         .layer(middleware::from_fn_with_state(state, op_log_middleware))
 }

@@ -63,7 +63,7 @@ function getActionIcon(action: string) {
   return <span style={{ ...s, background: c.bg, color: '#fff' }}>{c.el}</span>;
 }
 
-function getActionLabel(action: string) {
+function getActionLabel(action: string): [string, string] {
   const m: Record<string, [string, string]> = {
     login: ['登录','#34d399'], logout: ['退出登录','#fbbf24'], register: ['注册','#34d399'],
     create: ['新建','#60a5fa'], update: ['修改','#fbbf24'], delete: ['删除','#f87171'],
@@ -78,8 +78,34 @@ function getActionLabel(action: string) {
     open: ['打开模块','#818cf8'],
     other: ['其他操作','#9ca3af'],
   };
-  const [t, c] = m[action] || m.other;
-  return <span style={{ color: c, fontWeight: 500, fontSize: 12 }}>{t}</span>;
+  return m[action] || m.other;
+}
+
+function formatLogDetail(detail: string | null, action: string): string {
+  if (!detail) return getActionLabel(action)[0];
+  let cleaned = detail;
+  cleaned = cleaned.replace(/\/profile\/upload-background/g, '上传背景');
+  cleaned = cleaned.replace(/\/profile\/avatar/g, '上传头像');
+  cleaned = cleaned.replace(/\/profile\/api-key/g, '重新生成Key');
+  cleaned = cleaned.replace(/\/profile\/change-password/g, '修改密码');
+  cleaned = cleaned.replace(/\/profile\/change-email/g, '更换邮箱');
+  cleaned = cleaned.replace(/\/auth\/oauth\/login/g, 'OAuth登录');
+  if (cleaned.includes('/')) {
+    const parts = cleaned.split('/');
+    cleaned = parts[parts.length - 1] || parts[parts.length - 2] || cleaned;
+  }
+  const map: Record<string, string> = {
+    'upload-background': '上传背景',
+    'avatar': '上传头像',
+    'api-key': '重新生成Key',
+    'change-password': '修改密码',
+    'change-email': '更换邮箱',
+    'login': '登录',
+    'logout': '退出登录',
+    'view_merchant_overview': '查看平台总览',
+    'update_profile': '修改信息',
+  };
+  return map[cleaned] || cleaned;
 }
 
 export default function MerchantDashboard() {
@@ -91,6 +117,7 @@ export default function MerchantDashboard() {
   const { theme } = useThemeStore();
   const [opLogs, setOpLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
+  const hiddenPaths = ['/profile/upload-background', '/profile/avatar', '/profile/api-key', '/profile/change-password', '/profile/change-email', '/profile/send-email-code', '/profile/verify-old-email'];
 
   const axisColor = theme === 'dark' ? '#55556a' : '#8888a0';
   const gridColor = theme === 'dark' ? '#1e1e2e' : '#dddde8';
@@ -101,7 +128,7 @@ export default function MerchantDashboard() {
   useEffect(() => {
     logApi.log('view', 'platform', 'view_merchant_overview');
     setLoading(true);
-    fetch('/api/merchant/op-logs?page=1&page_size=15',{headers:{Authorization:'Bearer '+localStorage.getItem('token')||''}}).then(r=>r.json()).then(d=>{if(d.success)setOpLogs(d.data||[]);}).catch(()=>{}).finally(()=>setLogsLoading(false));
+    fetch('/api/merchant/op-logs?page=1&page_size=300',{headers:{Authorization:'Bearer '+localStorage.getItem('token')||''}}).then(r=>r.json()).then(d=>{if(d.success)setOpLogs(d.data||[]);}).catch(()=>{}).finally(()=>setLogsLoading(false));
     Promise.all([
       merchantApi.dashboardStats(range),
       activationsApi.list({ page: 1, page_size: 500 })
@@ -184,13 +211,13 @@ export default function MerchantDashboard() {
           <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>暂无操作记录</div>
         ) : (
           <div style={{ maxHeight: 200, overflow: 'auto' }}>
-            {opLogs.map((log: any, idx: number) => (
+            {opLogs.filter((log: any) => !hiddenPaths.some((p: string) => (log.detail || '').includes(p))).map((log: any, idx: number) => (
               <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {getActionIcon(log.action)}
                   <span style={{ display: 'flex', flexDirection: 'column' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontWeight: 500, fontSize: 12, color: 'var(--text)' }}>{log.detail || getActionLabel(log.action)}</span>
+                      <span style={{ fontWeight: 500, fontSize: 12, color: 'var(--text)' }}>{formatLogDetail(log.detail, log.action)}</span>
                     </span>
                   </span>
                 </span>

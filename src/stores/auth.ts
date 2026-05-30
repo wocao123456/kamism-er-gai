@@ -4,6 +4,7 @@ export interface User {
   id: string;
   username: string;
   email: string;
+  avatar?: string;
   api_key?: string;
   status?: string;
   plan?: string;
@@ -24,6 +25,8 @@ interface AuthState {
   isAuthenticated: () => boolean;
   setViewMode: (mode: 'admin' | 'merchant' | null) => void;
   ensureMerchantRecord: () => Promise<void>;
+  updateUser: (partial: Partial<User>) => void;
+  refreshProfile: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -62,6 +65,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ token: null, refreshToken: null, role: null, user: null, viewMode: null });
   },
 
+  updateUser: (partial: Partial<User>) => {
+    const updated = { ...get().user, ...partial } as User;
+    localStorage.setItem('user', JSON.stringify(updated));
+    set({ user: updated });
+  },
+
+  refreshProfile: async () => {
+    const token = get().token;
+    if (!token) return;
+    try {
+      const res = await fetch('/api/profile', {
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      const json = await res.json();
+      if (json.success && json.data) {
+        const u = json.data;
+        localStorage.setItem('user', JSON.stringify(u));
+        set({ user: u });
+      }
+    } catch (e) {
+      console.error('refreshProfile failed', e);
+    }
+  },
+
   isAuthenticated: () => !!get().token,
 
   setViewMode: (mode) => set({ viewMode: mode }),
@@ -71,23 +98,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!token) return;
     try {
       const resp = await fetch('/api/merchant/profile', {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: 'Bearer ' + token },
       });
-      if (resp.ok) return; // 已有商户记录
-
-      // 自动注册商户
+      if (resp.ok) return;
       await fetch('/api/merchant/register', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          Authorization: 'Bearer ' + token,
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           username: get().user?.username || 'admin',
           email: get().user?.email || 'admin@kamism.local',
           password: 'AdminAuto@123',
-          code: '000000'
-        })
+          code: '000000',
+        }),
       });
     } catch (e) {
       console.error('自动创建商户失败', e);

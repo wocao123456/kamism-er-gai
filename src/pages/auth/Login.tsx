@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth';
 import { authApi } from '../../lib/api';
@@ -6,12 +6,42 @@ import { Mail, Lock, ArrowRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import appIcon from '../../assets/app-icon.png';
 
+const OAUTH_TYPES = [
+  { value: 'qq', label: 'QQ', icon: '🐧' },
+  { value: 'wx', label: '微信', icon: '💬' },
+  { value: 'alipay', label: '支付宝', icon: '💰' },
+  { value: 'sina', label: '微博', icon: '📢' },
+  { value: 'baidu', label: '百度', icon: '🔍' },
+  { value: 'douyin', label: '抖音', icon: '🎵' },
+  { value: 'huawei', label: '华为', icon: '📱' },
+  { value: 'google', label: 'Google', icon: '🔗' },
+  { value: 'microsoft', label: 'Microsoft', icon: '🪟' },
+  { value: 'twitter', label: 'Twitter', icon: '🐦' },
+  { value: 'dingtalk', label: '钉钉', icon: '💼' },
+  { value: 'gitee', label: 'Gitee', icon: '🐙' },
+  { value: 'github', label: 'GitHub', icon: '🐱' },
+];
+
 export default function Login() {
   const navigate = useNavigate();
   const { setAuth } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [oauthEnabled, setOauthEnabled] = useState(false);
+  const [enabledTypes, setEnabledTypes] = useState<string[]>([]);
+  const [loggingIn, setLoggingIn] = useState<string | null>(null);
+
+  useEffect(() => {
+    const cfg = localStorage.getItem('kamism_oauth_config');
+    if (cfg) {
+      try {
+        const parsed = JSON.parse(cfg);
+        setOauthEnabled(parsed.enabled || false);
+        setEnabledTypes(parsed.enabled_types || []);
+      } catch {}
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +60,39 @@ export default function Login() {
       toast.error('登录失败，请检查网络');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOAuthLogin = async (type: string) => {
+    setLoggingIn(type);
+    try {
+      const cfg = JSON.parse(localStorage.getItem('kamism_oauth_config') || '{}');
+      const appid = cfg.appid;
+      const appkey = cfg.appkey;
+      const redirectUri = cfg.redirect_uri;
+      if (!appid || !appkey || !redirectUri) {
+        toast.error('请先在设置中配置素颜聚合登录信息');
+        return;
+      }
+      // 请求素颜聚合登录接口获取跳转地址
+      const url = new URL('https://u.suyanw.cn/connect.php');
+      url.searchParams.set('act', 'login');
+      url.searchParams.set('appid', appid);
+      url.searchParams.set('appkey', appkey);
+      url.searchParams.set('type', type);
+      url.searchParams.set('redirect_uri', redirectUri);
+      const res = await fetch(url.toString());
+      const json = await res.json();
+      if (json.code === 0 && json.url) {
+        // 跳转到素颜聚合登录地址
+        window.location.href = json.url;
+      } else {
+        toast.error(json.msg || '获取登录地址失败');
+      }
+    } catch {
+      toast.error('登录失败，请检查网络');
+    } finally {
+      setLoggingIn(null);
     }
   };
 
@@ -90,6 +153,31 @@ export default function Login() {
               </Link>
             </div>
           </div>
+
+          {oauthEnabled && enabledTypes.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, textAlign: 'center' }}>— 或使用第三方登录 —</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {enabledTypes.map(type => {
+                  const config = OAUTH_TYPES.find(t => t.value === type);
+                  if (!config) return null;
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ flex: '1 1 30%', justifyContent: 'center', gap: 6, fontSize: 12 }}
+                      onClick={() => handleOAuthLogin(type)}
+                      disabled={loggingIn !== null}
+                    >
+                      <span>{config.icon}</span>
+                      <span>{loggingIn === type ? '跳转中...' : config.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/auth';
 import { useThemeStore } from '../stores/theme';
 import {
   LayoutDashboard, Package, Key, Activity, Users,
-  Settings, LogOut, Shield, X, Bell, Megaphone, Sun, Moon, ShieldAlert, Network, BookOpen, Webhook
+  Settings, LogOut, Shield, X, Bell, Megaphone, Sun, Moon, ShieldAlert, Network, BookOpen, Webhook, User
 } from 'lucide-react';
 import appIcon from '../assets/app-icon.png';
 import { merchantMessagesApi } from '../lib/api';
@@ -35,7 +35,7 @@ const merchantNav: NavItem[] = [
   { label: '代理管理', path: '/agents',    icon: <Network size={16} />, hideForAdmin: true },
   { label: 'API 文档',  path: '/api-docs',  icon: <BookOpen size={16} /> },
   { label: 'API 管理',  path: '/api-manage', icon: <Webhook size={16} /> },
-  { label: '账号设置', path: '/settings', icon: <Settings size={16} /> },
+
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -156,8 +156,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-dim), #6d28d9)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-            {user?.username?.[0]?.toUpperCase() ?? 'U'}
+          <div style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', background: 'var(--bg)', flexShrink: 0, border: '2px solid var(--border-light)' }}>
+            {user?.avatar ? (
+              <img src={user.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', background: 'linear-gradient(135deg, var(--accent-dim), #6d28d9)' }}>
+                {user?.username?.[0]?.toUpperCase() ?? 'U'}
+              </div>
+            )}
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.username}</div>
@@ -172,12 +178,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button className="btn btn-ghost" style={{ flex: 1, justifyContent: 'center', fontSize: 12 }} onClick={toggleTheme}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          <button className="btn btn-ghost" style={{ justifyContent: 'center', fontSize: 12 }} onClick={() => handleNav('/profile')}>
+            <User size={13} /> 我的
+          </button>
+          <button className="btn btn-ghost" style={{ justifyContent: 'center', fontSize: 12 }} onClick={() => handleNav('/settings')}>
+            <Settings size={13} /> 设置
+          </button>
+          <button className="btn btn-ghost" style={{ justifyContent: 'center', fontSize: 12 }} onClick={toggleTheme}>
             {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
             {theme === 'dark' ? '亮色' : '暗色'}
           </button>
-          <button className="btn btn-ghost" style={{ flex: 1, justifyContent: 'center', fontSize: 12 }} onClick={handleLogout}>
+          <button className="btn btn-ghost" style={{ justifyContent: 'center', fontSize: 12, color: 'var(--danger)' }} onClick={handleLogout}>
             <LogOut size={13} /> 退出
           </button>
         </div>

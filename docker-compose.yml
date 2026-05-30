@@ -73,7 +73,9 @@ services:
       TZ: Asia/Shanghai
       MASTER_KEY: ${MASTER_KEY}
       DATABASE_URL: postgres://kamism:${POSTGRES_PASSWORD}@postgres:5432/kamism
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_URL: redis://redis:6379
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       AMQP_URL: amqp://kamism:${RABBITMQ_PASSWORD}@rabbitmq:5672/%2f
       JWT_SECRET: ${JWT_SECRET}
       PORT: 9527

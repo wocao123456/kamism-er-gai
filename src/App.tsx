@@ -12,6 +12,7 @@ import ResetPassword from './pages/auth/ResetPassword';
 applyStoredTheme();
 
 const AdminDashboard    = lazy(() => import('./pages/admin/Dashboard'));
+const AdminProfile      = lazy(() => import('./pages/admin/Profile'));
 const Merchants         = lazy(() => import('./pages/admin/Merchants'));
 const PlanConfigs       = lazy(() => import('./pages/admin/PlanConfigs'));
 const AdminMessages     = lazy(() => import('./pages/admin/Messages'));
@@ -21,11 +22,12 @@ const MerchantDashboard = lazy(() => import('./pages/merchant/Dashboard'));
 const Apps              = lazy(() => import('./pages/merchant/Apps'));
 const Cards             = lazy(() => import('./pages/merchant/Cards'));
 const Activations       = lazy(() => import('./pages/merchant/Activations'));
-const Settings          = lazy(() => import('./pages/merchant/Settings'));
+
 const MerchantMessages  = lazy(() => import('./pages/merchant/Messages'));
 const Blacklist         = lazy(() => import('./pages/merchant/Blacklist'));
 const Agents            = lazy(() => import('./pages/merchant/Agents'));
 const ApiDocs           = lazy(() => import('./pages/merchant/ApiDocs'));
+const SettingsPage      = lazy(() => import('./pages/admin/SettingsPage'));
 
 const PageFallback = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg)' }}>
@@ -79,12 +81,14 @@ function AppRoutes() {
           <Route path="/admin/api-manage"   element={<RequireAuth role="admin"><Layout><ApiManage         key={pageKey} /></Layout></RequireAuth>} />
           <Route path="/api-manage"           element={<RequireAuth role={["admin","merchant"]}><Layout><MerchantApiManage key={pageKey} /></Layout></RequireAuth>} />
           <Route path="/admin/messages"     element={<RequireAuth role="admin"><Layout><AdminMessages     key={pageKey} /></Layout></RequireAuth>} />
+          <Route path="/profile"           element={<RequireAuth role={["admin","merchant"]}><Layout><AdminProfile      key={pageKey} /></Layout></RequireAuth>} />
+          <Route path="/settings"    element={<RequireAuth role={["admin","merchant"]}><Layout><SettingsPage      key={pageKey} /></Layout></RequireAuth>} />
 
           <Route path="/dashboard"   element={<RequireAuth role={["admin","merchant"]}><Layout><MerchantDashboard key={pageKey} /></Layout></RequireAuth>} />
           <Route path="/apps"        element={<RequireAuth role={["admin","merchant"]}><Layout><Apps              key={pageKey} /></Layout></RequireAuth>} />
           <Route path="/cards"       element={<RequireAuth role={["admin","merchant"]}><Layout><Cards             key={pageKey} /></Layout></RequireAuth>} />
           <Route path="/activations" element={<RequireAuth role={["admin","merchant"]}><Layout><Activations       key={pageKey} /></Layout></RequireAuth>} />
-          <Route path="/settings"    element={<RequireAuth role={["admin","merchant"]}><Layout><Settings          key={pageKey} /></Layout></RequireAuth>} />
+
           <Route path="/messages"    element={<RequireAuth role={["admin","merchant"]}><Layout><MerchantMessages  key={pageKey} /></Layout></RequireAuth>} />
           <Route path="/blacklist"   element={<RequireAuth role={["admin","merchant"]}><Layout><Blacklist          key={pageKey} /></Layout></RequireAuth>} />
           <Route path="/agents"      element={<RequireAuth role={["admin","merchant"]}><Layout><Agents             key={pageKey} /></Layout></RequireAuth>} />

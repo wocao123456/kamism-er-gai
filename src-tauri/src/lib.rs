@@ -114,7 +114,7 @@ pub async fn start_server() -> anyhow::Result<()> {
         loop { interval.tick().await; scan_and_enqueue(&scanner_pool, &scanner_channel).await; }
     });
 
-    // 风控自动解封：每30秒清理到期黑名单
+    // 风控自动解封：每30���清理到期黑名单
     let unblock_pool = pool.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
@@ -187,6 +187,8 @@ pub async fn start_server() -> anyhow::Result<()> {
         .merge(routes::webhooks::webhooks_router(state.clone()))
         .merge(routes::blacklist::blacklist_router(state.clone()))
         .merge(routes::agent::agent_router(state.clone()))
+        .merge(routes::oauth::oauth_router(state.clone()))
+        .merge(routes::profile::profile_router(state.clone()))
         .nest("/api/keys", routes::api_keys::api_keys_router(state.clone()))
         .nest("/api/ts", routes::api_ts::api_ts_router(state.clone()))
         .layer(axum_middleware::from_fn_with_state(state.clone(), op_log_middleware))
