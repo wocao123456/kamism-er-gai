@@ -5,6 +5,62 @@
 
 ---
 
+## [未发布] - 2026-05-30
+
+### 新功能
+- **侧边栏2x2网格布局**：底部按钮改为2x2网格，包含「我的」「设置」「暗色模式」「退出」
+- **「我的」页面独立路由**：从 `/admin/profile` 改为 `/profile`，admin 和 merchant 角色均可访问
+- **全新的「我的」页面**：美观的用户信息管理页面
+  - 头像上传（支持点击更换，hover显示"更换"提示，边框改为简洁2px solid var(--border-light)）
+  - 用户名点击直接编辑，实时保存
+  - API Key 折叠面板（默认脱敏显示 `****`，点击展开查看完整Key）
+  - API Key 重新生成功能
+  - 邮箱换绑功能（输入新邮箱→获取验证码→验证→换绑，带60秒倒计时）
+  - 修改密码弹窗（原密码/新密码/确认密码，三字段校验）
+- **「设置」页面独立路由**：包含自定义背景和OAuth配置
+- **自定义背景上传**：支持上传背景图保存到服务器磁盘，换系统迁移保留
+- **三方OAuth自定义配置**（原素颜聚合登录）
+  - 支持 13 种登录方式：QQ/微信/支付宝/微博/百度/抖音/华为/Google/Microsoft/Twitter/钉钉/Gitee/GitHub
+  - AppID + AppKey（密码框输入）+ 回调地址配置
+  - 多选启用的登录方式，点击切换
+  - 根据配置动态显示登录按钮，通过素颜聚合登录API获取跳转地址
+- **nginx 代理修复**：删除独立 `/profile` location，统一走 `/api/` 代理
+- **Authorization header 转发**：nginx 所有 API location 正确转发 `Authorization` header
+- **前端 api() 统一前缀**：所有请求统一走 `/api/xxx`，彻底修复 `/profile` 页面刷新401问题
+- **操作日志详情增强**：对 `/profile/upload-background`、`/profile/upload-avatar`、`/profile/api-key`、`/profile/change-password`、`/profile/change-email` 等做中文映射（上传背景/上传头像/重新生成Key/修改密码/更换邮箱）
+- **Dashboard 操作日志中文映射**：`formatLogDetail` 函数映射所有profile相关路径
+- **移动端响应式**：侧边栏支持移动端 overlay + hamburger menu
+
+### Bug修复
+- 头像上传返回 401 错误修复（nginx `proxy_set_header Authorization $http_authorization`）
+- `/profile` 页面刷新 401 错误修复（删除nginx独立 `/profile` location）
+- 登录页 TypeScript 编译错误（移除不存在的 lucide-react 导出 `Chrome`、`Qq`）
+- 设置页面 TypeScript 编译错误（移除未使用的 `Plus`、`X` 导入）
+- 设置页面 title 「登录快捷设置」→「登录快捷配置」
+- auth.ts 模板字符串语法错误（`Bearer ${token}` 改为 `'Bearer ' + token`）
+- auth.ts `refreshProfile` 函数修复，token 过期自动刷新
+- 操作日志中显示详细路径 `/profile/upload-background` 改为中文描述
+- Dashboard.tsx `getActionLabel` 返回值类型变更导致 TS2322 错误修复
+- 头像 404 问题（浏览器缓存旧头像路径，清理缓存解决）
+
+### UI改进
+- 头像边框去除紫色圆环，改为简洁 `2px solid var(--border-light)`
+- 「我的」页面统一使用 `card` + `btn` 标准风格
+- API Key / 邮箱换绑折叠面板美化：展开时紫色背景高亮 `rgba(124,106,247,0.08)` + 紫色边框 `rgba(124,106,247,0.2)`
+- 折叠面板箭头图标展开时变为主题色 `var(--accent)`
+- 折叠面板整体可点击区域增大，用户体验更好
+- 设置页面 OAuth 配置按钮美化（圆角 `border-radius: 8`、过渡动画 `transition: all 0.2s`）
+- 侧边栏底部2x2网格布局，按钮间距 `gap: 6`，hover 背景 `var(--bg-hover)`
+- 侧边栏用户头像区域边框 `2px solid var(--border-light)`
+
+### 架构改进
+- 前后端 API 统一前缀策略（统一走 `/api`，不再有特殊路径）
+- nginx SPA fallback 正确处理非 API 路径返回 index.html
+- 后端新增 `profile.rs` 路由：`/profile`、`/profile/avatar`、`/profile/api-key`、`/profile/change-password`、`/profile/send-email-code`、`/profile/change-email`
+- 后端操作日志中间件增强：记录请求体关键字段
+
+---
+
 ## [最新] - 2026-05-29
 
 ### Bug修复
