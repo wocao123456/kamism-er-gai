@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { Upload, Trash2 } from 'lucide-react';
+import { useAuthStore } from '../../stores/auth';
 
 const CURRENT_VERSION = (window as any).__APP_VERSION__ || '1.3.0';
 
@@ -22,10 +23,11 @@ const OAUTH_TYPES = [
 
 // 背景用 userId 隔离，OAuth 是全局统一的用 admin
 function bgKey() { return 'kamism_bg_url_' + (localStorage.getItem('role') || 'guest'); }
-function oauthBaseKey() { return 'kamism_oauth_config_admin'; }
 
 
 export default function SettingsPage() {
+  const { role, updateUser } = useAuthStore();
+  const isAdmin = role === 'admin';
   const [bgUrl, setBgUrl] = useState('');
   const [hasUpdate, setHasUpdate] = useState(false);
   const [localVersion, setLocalVersion] = useState(CURRENT_VERSION);
@@ -36,22 +38,36 @@ export default function SettingsPage() {
   const [oauthEnabled, setOauthEnabled] = useState(false);
   const [appid, setAppid] = useState('');
   const [appkey, setAppkey] = useState('');
-  const [redirectUri, setRedirectUri] = useState('');
+  const [redirectUri, setRedirectUri] = useState(() => `${window.location.origin}/auth/oauth/callback`);
+  const [oauthBaseUrl, setOauthBaseUrl] = useState('https://u.suyanw.cn');
+  const [oauthLoginPath, setOauthLoginPath] = useState('/connect.php');
+  const [oauthUserPath, setOauthUserPath] = useState('/api.php');
   const [enabledTypes, setEnabledTypes] = useState<string[]>([]);
 
   useEffect(() => {
-    const saved = localStorage.getItem(bgKey());
-    if (saved) setBgUrl(saved);
-    const oauthCfg = localStorage.getItem(oauthBaseKey());
-    if (oauthCfg) {
-      try {
-        const cfg = JSON.parse(oauthCfg);
-        setOauthEnabled(cfg.enabled || false);
-        setAppid(cfg.appid || '');
-        setAppkey(cfg.appkey || '');
-        setRedirectUri(cfg.redirect_uri || '');
-        setEnabledTypes(cfg.enabled_types || []);
-      } catch {}
+    const currentBg = useAuthStore.getState().user?.background_url;
+    if (currentBg) setBgUrl(currentBg);
+    if (isAdmin) {
+      (async () => {
+        try {
+          const token = localStorage.getItem('token');
+          const res = await fetch('/auth/oauth/admin/config', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const json = await res.json();
+          if (json.success && json.data) {
+            const cfg = json.data;
+            setOauthEnabled(Boolean(cfg.enabled));
+            setAppid(cfg.appid || '');
+            setAppkey(cfg.appkey || '');
+            setRedirectUri(cfg.redirect_uri || `${window.location.origin}/auth/oauth/callback`);
+            setOauthBaseUrl(cfg.base_url || 'https://u.suyanw.cn');
+            setOauthLoginPath(cfg.login_path || '/connect.php');
+            setOauthUserPath(cfg.user_path || '/api.php');
+            setEnabledTypes(cfg.enabled_types || []);
+          }
+        } catch {}
+      })();
     }
     (async () => {
       try {
@@ -120,6 +136,7 @@ export default function SettingsPage() {
           setBgUrl(url);
           localStorage.setItem(bgKey(), url);
           document.documentElement.style.setProperty('--custom-bg', `url(${url})`);
+          updateUser({ background_url: baseUrl });
           toast.success('背景已更新');
         } else {
           toast.error(json.message || '上传失败');
@@ -151,6 +168,7 @@ export default function SettingsPage() {
     setBgUrl('');
     localStorage.removeItem(bgKey());
     document.documentElement.style.removeProperty('--custom-bg');
+    updateUser({ background_url: undefined });
     toast.success('背景已移除');
   };
 
@@ -166,7 +184,7 @@ export default function SettingsPage() {
             width: '100%',
             height: 120,
             borderRadius: 8,
-            background: bgUrl ? `url(${bgUrl}) center/cover` : 'var(--bg)',
+            background: bgUrl ? `url(${bgUrl}) center/contain no-repeat` : 'var(--bg)',
             border: '1px dashed var(--border)',
             marginBottom: 12,
             display: 'flex',
@@ -195,6 +213,7 @@ export default function SettingsPage() {
       </div>
 
       {/* 三方OAuth自定义 */}
+      {isAdmin && (
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>三方OAuth自定义</div>
@@ -218,6 +237,18 @@ export default function SettingsPage() {
 
           {oauthEnabled && (
             <>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>OAuth服务地址</div>
+                <input className="input" value={oauthBaseUrl} onChange={(e) => setOauthBaseUrl(e.target.value)} placeholder="https://u.suyanw.cn" />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>登录接口路径</div>
+                <input className="input" value={oauthLoginPath} onChange={(e) => setOauthLoginPath(e.target.value)} placeholder="/connect.php" />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>用户信息接口路径</div>
+                <input className="input" value={oauthUserPath} onChange={(e) => setOauthUserPath(e.target.value)} placeholder="/api.php" />
+              </div>
               <div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>AppID</div>
                 <input
@@ -280,28 +311,42 @@ export default function SettingsPage() {
             </>
           )}
 
-          <button className="btn btn-primary" onClick={() => {
-            if (!appid || !appkey) {
-              toast.error('请填写 AppID 和 AppKey');
+          <button className="btn btn-primary" onClick={async () => {
+            if (oauthEnabled && (!appid || !appkey || !oauthBaseUrl)) {
+              toast.error('请填写 OAuth 服务地址、AppID 和 AppKey');
               return;
             }
-            const cfg = {
-              enabled: oauthEnabled,
-              appid,
-              appkey,
-              redirect_uri: redirectUri,
-              enabled_types: enabledTypes,
-            };
-            localStorage.setItem(oauthBaseKey(), JSON.stringify(cfg));
-            localStorage.setItem('kamism_oauth_appid_admin', appid);
-            localStorage.setItem('kamism_oauth_appkey_admin', appkey);
-            localStorage.setItem('kamism_oauth_redirect_admin', redirectUri);
-            toast.success('配置已保存');
+            try {
+              const token = localStorage.getItem('token');
+              const res = await fetch('/auth/oauth/admin/config', {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  enabled: oauthEnabled,
+                  appid,
+                  appkey,
+                  redirect_uri: (redirectUri && redirectUri.startsWith('http')) ? redirectUri : `${window.location.origin}${redirectUri || '/auth/oauth/callback'}`,
+                  base_url: oauthBaseUrl,
+                  login_path: oauthLoginPath,
+                  user_path: oauthUserPath,
+                  enabled_types: enabledTypes,
+                }),
+              });
+              const json = await res.json();
+              if (json.success) toast.success('配置已保存');
+              else toast.error(json.message || '保存失败');
+            } catch {
+              toast.error('保存失败，请检查网络');
+            }
           }}>
             保存配置
           </button>
         </div>
       </div>
+      )}
 
       {/* 版本检查 */}
       <div className="card" style={{ marginBottom: 16 }}>

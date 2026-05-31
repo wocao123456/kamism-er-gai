@@ -13,6 +13,8 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
+use crate::db::encrypted_fields::EncryptedFieldsOps;
+use bcrypt::{hash, DEFAULT_COST};
 
 #[derive(Deserialize)]
 pub struct CreateAppRequest {
@@ -41,12 +43,41 @@ pub fn apps_router(state: AppState) -> Router<AppState> {
         .route_layer(middleware::from_fn_with_state(state, auth_middleware))
 }
 
-async fn get_admin_merchant_id(pool: &sqlx::PgPool) -> Uuid {
-    sqlx::query_as::<_, (Uuid,)>("SELECT id FROM merchants WHERE username='admin' LIMIT 1")
-        .fetch_optional(pool).await
-        .ok().flatten()
-        .map(|(id,)| id)
-        .unwrap_or_default()
+async fn ensure_admin_merchant(state: &AppState, claims: &Claims) -> Result<Uuid, String> {
+    let id = Uuid::parse_str(&claims.sub).map_err(|_| "无效用户ID".to_string())?;
+    let exists: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM merchants WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+    if exists.is_some() {
+        return Ok(id);
+    }
+
+    let admin: Option<(String, String, String)> = sqlx::query_as("SELECT username, email, password_hash FROM admins WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+    let (username, email, password_hash) = admin.unwrap_or_else(|| ("admin".to_string(), format!("{}@admin.local", id), hash("AdminAuto@123", DEFAULT_COST).unwrap_or_default()));
+    let api_key = crate::utils::card_gen::generate_api_key();
+    let api_key_hash = EncryptedFieldsOps::generate_hash(&api_key);
+    let email_hash = EncryptedFieldsOps::generate_hash(&email);
+    let encrypted_api_key = EncryptedFieldsOps::encrypt_merchant_api_key(&state.pool, &state.encryptor, id, &api_key).await.map_err(|_| "API Key加密失败".to_string())?;
+    let encrypted_email = EncryptedFieldsOps::encrypt_merchant_email(&state.pool, &state.encryptor, id, &email).await.map_err(|_| "邮箱加密失败".to_string())?;
+    sqlx::query("INSERT INTO merchants (id, username, email_encrypted, email_hash, password_hash, api_key_encrypted, api_key_hash, email_verified, status, plan) VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE,'active','free') ON CONFLICT (id) DO NOTHING")
+        .bind(id)
+        .bind(username)
+        .bind(encrypted_email)
+        .bind(email_hash)
+        .bind(password_hash)
+        .bind(encrypted_api_key)
+        .bind(api_key_hash)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| format!("创建管理员商户记录失败: {}", e))?;
+    let _ = sqlx::query("UPDATE admins SET api_key = $1 WHERE id = $2").bind(&api_key).bind(id).execute(&state.pool).await;
+    Ok(id)
 }
 
 async fn list_apps(
@@ -55,7 +86,7 @@ async fn list_apps(
     Query(q): Query<AppQuery>,
 ) -> Json<Value> {
     let merchant_id = if claims.role == "admin" {
-        get_admin_merchant_id(&state.pool).await
+        match ensure_admin_merchant(&state, &claims).await { Ok(id) => id, Err(msg) => return Json(json!({"success": false, "message": msg})) }
     } else {
         match Uuid::parse_str(&claims.sub) {
             Ok(id) => id,
@@ -99,7 +130,7 @@ async fn create_app(
     Json(body): Json<CreateAppRequest>,
 ) -> Json<Value> {
     let merchant_id = if claims.role == "admin" {
-        get_admin_merchant_id(&state.pool).await
+        match ensure_admin_merchant(&state, &claims).await { Ok(id) => id, Err(msg) => return Json(json!({"success": false, "message": msg})) }
     } else {
         match Uuid::parse_str(&claims.sub) {
             Ok(id) => id,
@@ -154,7 +185,7 @@ async fn get_app(
     Path(id): Path<Uuid>,
 ) -> Json<Value> {
     let merchant_id = if claims.role == "admin" {
-        get_admin_merchant_id(&state.pool).await
+        match ensure_admin_merchant(&state, &claims).await { Ok(id) => id, Err(msg) => return Json(json!({"success": false, "message": msg})) }
     } else {
         Uuid::parse_str(&claims.sub).unwrap_or_default()
     };
@@ -180,7 +211,7 @@ async fn delete_app(
     Path(id): Path<Uuid>,
 ) -> Json<Value> {
     let merchant_id = if claims.role == "admin" {
-        get_admin_merchant_id(&state.pool).await
+        match ensure_admin_merchant(&state, &claims).await { Ok(id) => id, Err(msg) => return Json(json!({"success": false, "message": msg})) }
     } else {
         Uuid::parse_str(&claims.sub).unwrap_or_default()
     };
@@ -211,7 +242,7 @@ async fn update_app_status(
         _ => return Json(json!({"success": false, "message": "无效状态"})),
     };
     let merchant_id = if claims.role == "admin" {
-        get_admin_merchant_id(&state.pool).await
+        match ensure_admin_merchant(&state, &claims).await { Ok(id) => id, Err(msg) => return Json(json!({"success": false, "message": msg})) }
     } else {
         Uuid::parse_str(&claims.sub).unwrap_or_default()
     };
@@ -283,7 +314,7 @@ async fn batch_update_app_status(
         _ => return Json(json!({"success": false, "message": "无效状态"})),
     };
     let merchant_id = if claims.role == "admin" {
-        get_admin_merchant_id(&state.pool).await
+        match ensure_admin_merchant(&state, &claims).await { Ok(id) => id, Err(msg) => return Json(json!({"success": false, "message": msg})) }
     } else {
         Uuid::parse_str(&claims.sub).unwrap_or_default()
     };

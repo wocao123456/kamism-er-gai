@@ -56,6 +56,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }, [refreshProfile]);
 
   useEffect(() => {
+    refreshProfile();
+  }, [refreshProfile]);
+
+  useEffect(() => {
+    let layer = document.getElementById('global-custom-bg') as HTMLDivElement | null;
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.id = 'global-custom-bg';
+      document.body.prepend(layer);
+    }
+    const bg = user?.background_url;
+    if (bg) {
+      const url = bg.includes('?') ? bg : `${bg}?t=${Date.now()}`;
+      layer.style.cssText = `position:fixed;inset:0;z-index:0;pointer-events:none;background-image:url(${url});background-repeat:no-repeat;background-position:center center;background-size:cover;opacity:1;`;
+    } else {
+      layer.style.cssText = 'display:none';
+    }
+  }, [user?.background_url]);
+
+  useEffect(() => {
     if (role !== 'merchant') return;
     merchantMessagesApi.unreadCount()
       .then((res) => { if (res.data.success) setUnread(res.data.data.unread); })
@@ -96,7 +116,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   };
 
   const navItems: NavItem[] = role === 'admin'
-    ? [...adminNav, { label: '��─ 商户功能 ──', path: '', icon: <span /> }, ...merchantNav.filter(n => !n.hideForAdmin)]
+    ? [...adminNav, { label: "商户功能", path: "", icon: <span /> }, ...merchantNav.filter(n => !n.hideForAdmin)]
     : merchantNav;
 
   const handleLogout = () => {
@@ -165,7 +185,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           <div style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', background: 'var(--bg)', flexShrink: 0, border: '2px solid var(--border-light)' }}>
             {user?.avatar ? (
-              <img src={user.avatar.startsWith('/') ? user.avatar : '/uploads/avatars/' + user.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img src={user.avatar.startsWith('http') || user.avatar.startsWith('/') ? user.avatar : '/uploads/avatars/' + user.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             ) : (
               <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', background: 'linear-gradient(135deg, var(--accent-dim), #6d28d9)' }}>
                 {user?.username?.[0]?.toUpperCase() ?? 'U'}
@@ -205,7 +225,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', position: 'relative', zIndex: 1 }}>
       <header className="mobile-header">
         <div className="mobile-header-logo">
           <img src={appIcon} alt="KamiSM" style={{ width: 28, height: 28, borderRadius: 7 }} />
@@ -219,7 +239,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <aside className={`layout-sidebar${sidebarOpen ? ' open' : ''}`} style={{ width: 'var(--sidebar-w)', minWidth: 'var(--sidebar-w)', background: 'var(--bg-card)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', padding: '20px 0', overflowY: 'auto' }}>
         <SidebarContent />
       </aside>
-      <main className="layout-main fade-in" style={{ flex: 1, overflow: 'auto', padding: '32px 36px' }}>
+      <main className="layout-main fade-in" style={{ flex: 1, overflow: 'auto', padding: '32px 36px', background: 'transparent' }}>
         {children}
       </main>
       {noticeQueue.length > 0 && (

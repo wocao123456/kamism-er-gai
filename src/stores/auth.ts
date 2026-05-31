@@ -5,6 +5,7 @@ export interface User {
   username: string;
   email: string;
   avatar?: string;
+  background_url?: string;
   api_key?: string;
   status?: string;
   plan?: string;
@@ -62,6 +63,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('role');
     localStorage.removeItem('user');
+    document.documentElement.style.removeProperty('--custom-bg');
     set({ token: null, refreshToken: null, role: null, user: null, viewMode: null });
   },
 
@@ -96,28 +98,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setViewMode: (mode) => set({ viewMode: mode }),
 
   ensureMerchantRecord: async () => {
-    const token = get().token;
-    if (!token) return;
-    try {
-      const resp = await fetch('/api/merchant/profile', {
-        headers: { Authorization: 'Bearer ' + token },
-      });
-      if (resp.ok) return;
-      await fetch('/api/merchant/register', {
-        method: 'POST',
-        headers: {
-          Authorization: 'Bearer ' + token,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          username: get().user?.username || 'admin',
-          email: get().user?.email || 'admin@kamism.local',
-          password: 'AdminAuto@123',
-          code: '000000',
-        }),
-      });
-    } catch (e) {
-      console.error('自动创建商户失败', e);
-    }
+    return;
   },
 }));

@@ -247,23 +247,24 @@ async fn login(
             Err(_) => return Json(json!({"success": false, "message": "生成令牌失败"})),
         };
 
-        // 确保 admin 商户存在且 api_key 加密正确
-        let _ = sqlx::query("DELETE FROM merchants WHERE username='admin' AND api_key_encrypted NOT LIKE '%:%' ").execute(&state.pool).await;
-        // 管理员登录时获取 admin 商户的 api_key
+        // 管理员登录时只读取当前账号同 id 的商户 API Key，避免不同账号串数据
         let api_key = {
-            let mid = sqlx::query_as::<_, (Uuid,)>("SELECT id FROM merchants WHERE username='admin' LIMIT 1")
-                .fetch_optional(&state.pool).await
-                .ok().flatten();
-            if let Some((mid,)) = mid {
-                let m: Option<(String,)> = sqlx::query_as("SELECT api_key_encrypted FROM merchants WHERE id=$1")
-                    .bind(mid).fetch_optional(&state.pool).await
-                    .ok().flatten();
-                m.and_then(|(enc,)| EncryptedFieldsOps::decrypt_merchant_api_key(&state.encryptor, &enc).ok())
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            }
+            let m: Option<(String,)> = sqlx::query_as("SELECT api_key_encrypted FROM merchants WHERE id=$1")
+                .bind(admin.id)
+                .fetch_optional(&state.pool)
+                .await
+                .ok()
+                .flatten();
+            let merchant_key = m.and_then(|(enc,)| EncryptedFieldsOps::decrypt_merchant_api_key(&state.encryptor, &enc).ok());
+            let admin_key: Option<(Option<String>,)> = sqlx::query_as("SELECT api_key FROM admins WHERE id=$1")
+                .bind(admin.id)
+                .fetch_optional(&state.pool)
+                .await
+                .ok()
+                .flatten();
+            merchant_key.or_else(|| admin_key.and_then(|(k,)| k)).unwrap_or_default()
         };
+
 
         return Json(json!({
             "success": true,

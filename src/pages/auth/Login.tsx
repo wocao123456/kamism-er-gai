@@ -33,15 +33,19 @@ export default function Login() {
   const [loggingIn, setLoggingIn] = useState<string | null>(null);
 
   useEffect(() => {
-    // 读管理员配置的 OAuth 设置（key 带 role 后缀做数据隔离）
-    const cfg = localStorage.getItem('kamism_oauth_config_admin');
-    if (cfg) {
+    (async () => {
       try {
-        const parsed = JSON.parse(cfg);
-        setOauthEnabled(parsed.enabled || false);
-        setEnabledTypes(parsed.enabled_types || []);
-      } catch {}
-    }
+        const res = await fetch('/auth/oauth/config');
+        const json = await res.json();
+        if (json.success && json.data) {
+          setOauthEnabled(Boolean(json.data.enabled));
+          setEnabledTypes(json.data.enabled_types || []);
+        }
+      } catch {
+        setOauthEnabled(false);
+        setEnabledTypes([]);
+      }
+    })();
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -70,12 +74,7 @@ export default function Login() {
       const res = await fetch('/auth/oauth/proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          appid: localStorage.getItem('kamism_oauth_appid_admin') || '',
-          appkey: localStorage.getItem('kamism_oauth_appkey_admin') || '',
-          redirect_uri: localStorage.getItem('kamism_oauth_redirect_admin') || '',
-          type,
-        }),
+        body: JSON.stringify({ type }),
       });
       const text = await res.text();
       let json;
@@ -96,8 +95,7 @@ export default function Login() {
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'var(--custom-bg, radial-gradient(ellipse 80% 60% at 50% -20%, rgba(124,106,247,0.15), transparent))',
-      backgroundSize: 'cover', backgroundPosition: 'center',
+      background: 'radial-gradient(ellipse 80% 60% at 50% -20%, rgba(124,106,247,0.15), transparent)',
     }}>
       <div style={{ width: '100%', maxWidth: 400, padding: '0 20px' }}>
         {/* Logo */}

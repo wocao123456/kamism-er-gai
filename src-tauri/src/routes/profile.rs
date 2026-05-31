@@ -86,12 +86,12 @@ async fn get_profile(State(state): State<AppState>, Extension(_claims): Extensio
             String,
             String,
             String,
-            Option<String>,
+            String,
             Option<String>,
             Option<String>,
             Option<String>,
         )> = sqlx::query_as(
-            "SELECT id::text, username, email_encrypted, api_key, plan, avatar_url, background_url FROM merchants WHERE id::text = $1"
+            "SELECT id::text, username, email_encrypted, api_key_encrypted, plan, avatar_url, background_url FROM merchants WHERE id::text = $1"
         )
         .bind(uid)
         .fetch_optional(&state.pool)
@@ -99,20 +99,24 @@ async fn get_profile(State(state): State<AppState>, Extension(_claims): Extensio
         .unwrap_or(None);
 
         match r {
-            Some((id, u, e, k, p, a, bg)) => Json(json!({
-                "success": true,
-                "data": {
-                    "id": id,
-                    "username": u,
-                    "email": e,
-                    "api_key": k,
-                    "plan": p,
-                    "avatar": a,
-                    "background_url": bg,
-                    "user_type": "merchant",
-                },
-            })),
-            None => Json(json!({"success": false, "message": "用户不存在"})),
+            Some((id, u, e, k, p, a, bg)) => {
+                let email = crate::db::encrypted_fields::EncryptedFieldsOps::decrypt_merchant_email(&state.encryptor, &e).unwrap_or(e);
+                let api_key = crate::db::encrypted_fields::EncryptedFieldsOps::decrypt_merchant_api_key(&state.encryptor, &k).unwrap_or_default();
+                Json(json!({
+                    "success": true,
+                    "data": {
+                        "id": id,
+                        "username": u,
+                        "email": email,
+                        "api_key": api_key,
+                        "plan": p,
+                        "avatar": a,
+                        "background_url": bg,
+                        "user_type": "merchant",
+                    },
+                }))
+            }
+            None => Json(json!({"success": false, "message": "not found"})),
         }
     }
 }
@@ -229,7 +233,7 @@ async fn profile_change_password(
     match r {
         Some((h,)) => {
             if !verify(&body.old_password, &h).unwrap_or(false) {
-                return Json(json!({"success": false, "message": "原密码���误"}));
+                return Json(json!({"success": false, "message": "原密码错误"}));
             }
             let nh = hash(&body.new_password, DEFAULT_COST).unwrap();
             let _ = sqlx::query(&format!("UPDATE {} SET password_hash = $1 WHERE id::text = $2", tbl))
@@ -266,82 +270,67 @@ async fn profile_change_email(
     Extension(claims): Extension<Claims>,
     Json(body): Json<ChangeEmailRequest>,
 ) -> Json<Value> {
+    let new_email = body.new_email.trim().to_lowercase();
+    if new_email.is_empty() || !new_email.contains('@') {
+        return Json(json!({"success": false, "message": "邮箱格式不正确"}));
+    }
+
     let mut c = state.redis.clone();
-    let k = format!("email-code:{}", body.new_email);
-    let sc: Option<String> = c.get(&k).await.unwrap_or(None);
+    let k1 = format!("email-code:{}", new_email);
+    let k2 = format!("code:verify:{}", new_email);
+    let sc: Option<String> = c.get(&k1).await.unwrap_or(None).or(c.get(&k2).await.unwrap_or(None));
     match sc {
         Some(v) if v == body.code => {
-            let _: () = c.del(&k).await.unwrap_or(());
-            let old_email = claims.sub.clone();
-            
-            // 管理员：直接更新邮箱，同时同步到 merchants 表
+            let _: () = c.del(&k1).await.unwrap_or(());
+            let _: () = c.del(&k2).await.unwrap_or(());
+            let uid = match Uuid::parse_str(&claims.sub) {
+                Ok(id) => id,
+                Err(_) => return Json(json!({"success": false, "message": "无效用户ID"})),
+            };
+            let email_hash = crate::db::encrypted_fields::EncryptedFieldsOps::generate_hash(&new_email);
+
             if claims.role == "admin" {
-                let _ = sqlx::query("UPDATE admins SET email = $1 WHERE id::text = $2")
-                    .bind(&body.new_email)
-                    .bind(&old_email)
-                    .execute(&state.pool)
-                    .await;
-                // 同步更新 merchants 表的 email 和 email_encrypted
-                let uid = match uuid::Uuid::parse_str(&old_email) {
-                    Ok(id) => id,
-                    Err(_) => return Json(json!({"success": false, "message": "无效用户ID"})),
-                };
-                let _ = sqlx::query("UPDATE merchants SET email = $1, email_encrypted = $1 WHERE id = $2")
-                    .bind(&body.new_email)
+                let _ = sqlx::query("UPDATE admins SET email = $1 WHERE id = $2")
+                    .bind(&new_email)
                     .bind(uid)
                     .execute(&state.pool)
                     .await;
-                return Json(json!({"success": true}));
-            }
-            
-            // 商户：数据迁移到新邮箱
-            // 1. 找出旧商户
-            let old_merchant: Option<(uuid::Uuid,)> = sqlx::query_as(
-                "SELECT id FROM merchants WHERE email_encrypted = $1"
-            )
-            .bind(&old_email)
-            .fetch_optional(&state.pool)
-            .await
-            .unwrap_or(None);
-            
-            if let Some((old_id,)) = old_merchant {
-                // 2. 检查新邮箱是否已有商户记录
-                let existing: Option<(uuid::Uuid,)> = sqlx::query_as(
-                    "SELECT id FROM merchants WHERE email_encrypted = $1"
-                )
-                .bind(&body.new_email)
-                .fetch_optional(&state.pool)
-                .await
-                .unwrap_or(None);
-                
-                if let Some((new_id,)) = existing {
-                    // 已有记录：把旧商户的 apps/cards/activations 转移到新商户
-                    let _ = sqlx::query("UPDATE apps SET merchant_id = $1 WHERE merchant_id = $2")
-                        .bind(new_id).bind(old_id).execute(&state.pool).await;
-                    let _ = sqlx::query("UPDATE cards SET merchant_id = $1 WHERE merchant_id = $2")
-                        .bind(new_id).bind(old_id).execute(&state.pool).await;
-                    let _ = sqlx::query(
-                        "UPDATE activations SET card_id = cards.id FROM cards WHERE cards.merchant_id = $1"
-                    )
-                    .bind(new_id).execute(&state.pool).await;
-                    // 删除旧商户
-                    let _ = sqlx::query("DELETE FROM merchants WHERE id = $1")
-                        .bind(old_id).execute(&state.pool).await;
-                } else {
-                    // 直接更新邮箱
-                    let _ = sqlx::query("UPDATE merchants SET email_encrypted = $1 WHERE id = $2")
-                        .bind(&body.new_email).bind(old_id).execute(&state.pool).await;
+                if let Ok(encrypted_email) = crate::db::encrypted_fields::EncryptedFieldsOps::encrypt_merchant_email(&state.pool, &state.encryptor, uid, &new_email).await {
+                    let _ = sqlx::query("UPDATE merchants SET email_encrypted = $1, email_hash = $2 WHERE id = $3")
+                        .bind(encrypted_email)
+                        .bind(&email_hash)
+                        .bind(uid)
+                        .execute(&state.pool)
+                        .await;
                 }
+            } else {
+                let encrypted_email = match crate::db::encrypted_fields::EncryptedFieldsOps::encrypt_merchant_email(&state.pool, &state.encryptor, uid, &new_email).await {
+                    Ok(v) => v,
+                    Err(_) => return Json(json!({"success": false, "message": "邮箱加密失败"})),
+                };
+                let existing: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM merchants WHERE email_hash = $1 AND id <> $2")
+                    .bind(&email_hash)
+                    .bind(uid)
+                    .fetch_optional(&state.pool)
+                    .await
+                    .unwrap_or(None);
+                if existing.is_some() {
+                    return Json(json!({"success": false, "message": "该邮箱已被使用"}));
+                }
+                let _ = sqlx::query("UPDATE merchants SET email_encrypted = $1, email_hash = $2 WHERE id = $3")
+                    .bind(encrypted_email)
+                    .bind(&email_hash)
+                    .bind(uid)
+                    .execute(&state.pool)
+                    .await;
+                let _ = sqlx::query("UPDATE admins SET email = $1 WHERE id = $2")
+                    .bind(&new_email)
+                    .bind(uid)
+                    .execute(&state.pool)
+                    .await;
             }
-            
-            // 商户换绑邮箱成功，同步更新 admins 表的 email
-            let _ = sqlx::query("UPDATE admins SET email = $1 WHERE id::text = $2")
-                .bind(&body.new_email)
-                .bind(&old_email)
-                .execute(&state.pool)
-                .await;
-            
-            Json(json!({"success": true}))
+
+            Json(json!({"success": true, "message": "邮箱换绑成功，请重新登录", "data": {"email": new_email, "require_relogin": true}}))
         }
         _ => Json(json!({"success": false, "message": "验证码错误或已过期"})),
     }
@@ -351,11 +340,7 @@ async fn regenerate_api_key(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Json<Value> {
-    let nk: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(32)
-        .map(char::from)
-        .collect();
+    let nk = crate::utils::card_gen::generate_api_key();
     if claims.role == "admin" {
         let _ = sqlx::query("UPDATE admins SET api_key = $1 WHERE id::text = $2")
             .bind(&nk)
@@ -370,8 +355,10 @@ async fn regenerate_api_key(
         if let Ok(encrypted) = crate::db::encrypted_fields::EncryptedFieldsOps::encrypt_merchant_api_key(
             &state.pool, &state.encryptor, uid, &nk,
         ).await {
-            let _ = sqlx::query("UPDATE merchants SET api_key_encrypted = $1 WHERE id = $2")
+            let hash = crate::db::encrypted_fields::EncryptedFieldsOps::generate_hash(&nk);
+            let _ = sqlx::query("UPDATE merchants SET api_key_encrypted = $1, api_key_hash = $2 WHERE id = $3")
                 .bind(&encrypted)
+                .bind(&hash)
                 .bind(uid)
                 .execute(&state.pool)
                 .await;
@@ -389,8 +376,10 @@ async fn regenerate_api_key(
         Ok(e) => e,
         Err(_) => return Json(json!({"success": false, "message": "加密失败"})),
     };
-    let _ = sqlx::query("UPDATE merchants SET api_key_encrypted = $1 WHERE id = $2")
+    let hash = crate::db::encrypted_fields::EncryptedFieldsOps::generate_hash(&nk);
+    let _ = sqlx::query("UPDATE merchants SET api_key_encrypted = $1, api_key_hash = $2 WHERE id = $3")
         .bind(&encrypted)
+        .bind(&hash)
         .bind(uid)
         .execute(&state.pool)
         .await;
@@ -419,6 +408,12 @@ async fn upload_background(
             let _ = std::fs::create_dir_all("/app/uploads/backgrounds");
             let _ = std::fs::write(format!("/app/uploads/{}", fnm), &d);
             let url = format!("/uploads/{}", fnm);
+            let tbl = if claims.role == "admin" { "admins" } else { "merchants" };
+            let _ = sqlx::query(&format!("UPDATE {} SET background_url = $1 WHERE id::text = $2", tbl))
+                .bind(&url)
+                .bind(&claims.sub)
+                .execute(&state.pool)
+                .await;
             return Json(json!({"success": true, "data": {"background_url": url}}));
         }
     }

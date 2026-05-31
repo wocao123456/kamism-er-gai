@@ -57,8 +57,34 @@ async fn get_profile(
 
     match merchant {
         Some(m) => {
-            let public: crate::models::merchant::MerchantPublic = m.into();
-            Json(json!({"success": true, "data": public}))
+            let email = crate::db::encrypted_fields::EncryptedFieldsOps::decrypt_merchant_email(&state.encryptor, &m.email)
+                .unwrap_or_else(|_| m.email.clone());
+            let api_key = crate::db::encrypted_fields::EncryptedFieldsOps::decrypt_merchant_api_key(&state.encryptor, &m.api_key)
+                .unwrap_or_default();
+            let extra: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+                "SELECT avatar_url, background_url FROM merchants WHERE id = $1"
+            )
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+            let (avatar, background_url) = extra.unwrap_or((None, None));
+            Json(json!({
+                "success": true,
+                "data": {
+                    "id": m.id,
+                    "username": m.username,
+                    "email": email,
+                    "api_key": api_key,
+                    "avatar": avatar,
+                    "background_url": background_url,
+                    "status": m.status,
+                    "plan": m.plan,
+                    "plan_expires_at": m.plan_expires_at,
+                    "email_verified": m.email_verified,
+                    "created_at": m.created_at
+                }
+            }))
         }
         None => Json(json!({"success": false, "message": "用户不存在"})),
     }
@@ -191,8 +217,16 @@ async fn regenerate_api_key(
     };
 
     let new_key = crate::utils::card_gen::generate_api_key();
-    let encrypted = state.encryptor.encrypt(&new_key, "api_key").unwrap_or_default();
-    let hash = hex::encode(sha2::Sha256::digest(new_key.as_bytes()));
+    let encrypted = match crate::db::encrypted_fields::EncryptedFieldsOps::encrypt_merchant_api_key(
+        &state.pool,
+        &state.encryptor,
+        id,
+        &new_key,
+    ).await {
+        Ok(v) => v,
+        Err(_) => return Json(json!({"success": false, "message": "API Key加密失败"})),
+    };
+    let hash = crate::db::encrypted_fields::EncryptedFieldsOps::generate_hash(&new_key);
 
     let _ = sqlx::query(
         "UPDATE merchants SET api_key_encrypted = $1, api_key_hash = $2, updated_at = NOW() WHERE id = $3",
@@ -202,6 +236,12 @@ async fn regenerate_api_key(
     .bind(id)
     .execute(&state.pool)
     .await;
+
+    let _ = sqlx::query("UPDATE admins SET api_key = $1 WHERE id = $2")
+        .bind(&new_key)
+        .bind(id)
+        .execute(&state.pool)
+        .await;
 
     Json(json!({"success": true, "data": {"api_key": new_key}}))
 }

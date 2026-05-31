@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { Edit3, Mail, EyeOff, Key, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth';
 
 const api = (path: string, opts?: RequestInit) => {
@@ -15,6 +16,7 @@ const AVATAR_FALLBACK = (name: string) =>
   `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 76 76"><rect width="76" height="76" rx="38" fill="%23667eea"/><text x="38" y="48" text-anchor="middle" fill="white" font-size="24">${(name || 'U').charAt(0).toUpperCase()}</text></svg>`;
 
 export default function AdminProfile() {
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -29,14 +31,6 @@ export default function AdminProfile() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [avatarVer, setAvatarVer] = useState(0);
   const [openSections, setOpenSections] = useState({ apiKey: false, email: false, password: false });
-
-  // 初始化背景：localStorage 优先（兼容旧后端未返回 background_url 的情况）
-  useEffect(() => {
-    const saved = localStorage.getItem('kamism_bg_url');
-    if (saved) {
-      document.documentElement.style.setProperty('--custom-bg', `url(${saved})`);
-    }
-  }, []);
 
   const loadProfile = async () => {
     setLoadError(false);
@@ -54,8 +48,6 @@ export default function AdminProfile() {
           // 从后端 background_url 刷新自定义背景
           if (d.background_url) {
             const url = d.background_url + '?t=' + Date.now();
-            const roleSuffix = localStorage.getItem('role') || 'guest';
-            localStorage.setItem('kamism_bg_url_' + roleSuffix, url);
             document.documentElement.style.setProperty('--custom-bg', `url(${url})`);
           }
         } else {
@@ -197,11 +189,10 @@ export default function AdminProfile() {
       });
       const json = await res.json();
       if (res.ok && json.success) {
-        toast.success('邮箱已更换，请重新登录');
+        toast.success(json.message || '邮箱已更换，请重新登录');
         setEmailForm({ email: '', code: '' });
-        useAuthStore.getState().updateUser({ email: emailForm.email });
-        window.dispatchEvent(new Event('merchant-sync'));
-        loadProfile();
+        useAuthStore.getState().logout();
+        navigate('/login', { replace: true });
       } else { toast.error(json.message || '更换失败'); }
     } catch { toast.error('更换失败'); }
   };
@@ -216,8 +207,10 @@ export default function AdminProfile() {
       const json = await res.json();
       if (res.ok && json.success) {
         toast.success('密码修改成功，请重新登录');
+        useAuthStore.getState().logout();
+        navigate('/login', { replace: true });
       } else {
-        toast.error(json.message || '����码修改失败');
+        toast.error(json.message || '密码修改失败');
       }
     } catch { toast.error('密码修改失败'); }
   };
@@ -393,16 +386,19 @@ export default function AdminProfile() {
 function PasswordSection({ onChangePassword }: { onChangePassword: (oldPwd: string, newPwd: string) => void }) {
   const [oldPwd, setOldPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
   const [sending, setSending] = useState(false);
 
   const submit = async () => {
-    if (!oldPwd || !newPwd) { toast.error('请填写完整'); return; }
+    if (!oldPwd || !newPwd || !confirmPwd) { toast.error('请填写完整'); return; }
     if (newPwd.length < 6) { toast.error('新密码至少6位'); return; }
+    if (newPwd !== confirmPwd) { toast.error('密码不一致'); return; }
     setSending(true);
     try {
       await onChangePassword(oldPwd, newPwd);
       setOldPwd('');
       setNewPwd('');
+      setConfirmPwd('');
     } finally { setSending(false); }
   };
 
@@ -411,6 +407,7 @@ function PasswordSection({ onChangePassword }: { onChangePassword: (oldPwd: stri
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
         <input type="password" className="input" placeholder="旧密码" value={oldPwd} onChange={e => setOldPwd(e.target.value)} />
         <input type="password" className="input" placeholder="新密码" value={newPwd} onChange={e => setNewPwd(e.target.value)} />
+        <input type="password" className="input" placeholder="确认新密码" value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} />
       </div>
       <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={submit} disabled={sending}>
         {sending ? '提交中...' : '确认修改'}

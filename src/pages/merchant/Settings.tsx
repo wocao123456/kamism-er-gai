@@ -47,14 +47,8 @@ export default function Settings() {
     if (!ok) return;
     setApiLoading(true);
     try {
-      let token_ = useAuthStore.getState().token;
-      // 管理员时先用 admin 商户登录拿商户 token
-      if (role === 'admin') {
-        const loginRes = await fetch(`${API_BASE}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'admin@kamism.local', password: '3230649356' }) });
-        const loginData = await loginRes.json();
-        token_ = loginData.token;
-      }
-      const res = await fetch(`${API_BASE}/api/merchant/regenerate-apikey`, { method: 'POST', headers: { 'Authorization': `Bearer ${token_}` } }).then(r => r.json());
+      const token_ = useAuthStore.getState().token;
+      const res = await fetch(`${API_BASE}/api/profile/api-key`, { method: 'POST', headers: { Authorization: `Bearer ${token_}` } }).then(r => r.json());
       if (res.success) {
         const newKey = res.data.api_key; setApiKey(newKey);
         if (user) { const currentToken = useAuthStore.getState().token; const currentRefreshToken = useAuthStore.getState().refreshToken; if (currentToken && currentRefreshToken) setAuth(currentToken, currentRefreshToken, role!, { ...user, api_key: newKey }); }

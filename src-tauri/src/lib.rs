@@ -226,17 +226,5 @@ async fn init_admin(pool: &db::DbPool, encryptor: &Arc<utils::kms::Encryptor>) {
         let _ = sqlx::query("INSERT INTO admins (username, email, password_hash) VALUES ($1, $2, $3)").bind("admin").bind(&admin_email).bind(&password_hash).execute(pool).await;
         tracing::info!("初始管理员账号已创建: {}", admin_email);
     }
-    let merchant_exists: Option<(String,)> = sqlx::query_as("SELECT id::text FROM merchants WHERE username = 'admin' LIMIT 1").fetch_optional(pool).await.unwrap_or(None);
-    if merchant_exists.is_none() {
-        let mid = uuid::Uuid::new_v4();
-        let raw_api_key = format!("km_{}", (0..30).map(|_| { let c = rand::thread_rng().gen_range(0..36); if c < 10 { ('0' as u8 + c) as char } else { ('a' as u8 + c - 10) as char } }).collect::<String>());
-        let email = "admin@kamism.local";
-        let api_key_hash = format!("{:x}", sha2::Sha256::digest(raw_api_key.as_bytes()));
-        let email_hash = format!("{:x}", sha2::Sha256::digest(email.as_bytes()));
-        let admin_password = env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "Admin@123456".to_string());
-        let password_hash = bcrypt::hash(&admin_password, bcrypt::DEFAULT_COST).unwrap_or_default();
-        let _ = sqlx::query("INSERT INTO merchants (id, username, email_encrypted, email_hash, api_key_encrypted, api_key_hash, password_hash, status, plan, email_verified) VALUES ($1,$2,$3,$4,$5,$6,$7,'active','free',true)")
-            .bind(mid).bind("admin").bind(&encryptor.encrypt(email, &format!("email_{}", mid)).unwrap_or_default()).bind(&email_hash).bind(&encryptor.encrypt(&raw_api_key, &format!("api_key_{}", mid)).unwrap_or_default()).bind(&api_key_hash).bind(&password_hash).execute(pool).await;
-        tracing::info!("管理员商户账号已创建: {} , API Key: {}", email, raw_api_key);
-    }
+    // 不再自动生成 admin@kamism.local 影子商户账号；管理员商户上下文由业务按当前 admin.id 兜底重建。
 }
