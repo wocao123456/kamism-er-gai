@@ -5,31 +5,31 @@ cd /root/kamism 2>/dev/null || cd /workspace 2>/dev/null || exit 0
 cat > .evn <<'EOT'
 # ─── 数据库 ──────────────────────────────────────────
 # PostgreSQL 密码（自动创建 kamism 数据库和用户）
-POSTGRES_PASSWORD=change_me_strong_password
+POSTGRES_PASSWORD=kamism
 
 # ─── RabbitMQ ────────────────────────────────────────
-RABBITMQ_PASSWORD=change_me_rabbitmq_password
+RABBITMQ_PASSWORD=kamism
 
 # ─── 认证 ────────────────────────────────────────────
 # JWT 签名密钥（建议 32 位以上随机字符串）
-JWT_SECRET=change_me_jwt_secret_at_least_32_chars
+JWT_SECRET=123456789987654321123456789000000
 # 加密密钥
-MASTER_KEY=十六进制字符串（64 个字符）
+MASTER_KEY=c889bb8cf8a550d8985de3695dd34522eda738f5b124b98a9d790d91c99600b3
 # ─── 管理员账号（首次启动自动创建）────────────────────
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=Admin@123456
+ADMIN_EMAIL=12345678@qq.com
+ADMIN_PASSWORD=12345678
 
 # ─── 端口（可选）─────────────────────────────────────
 # 前端访问端口（默认 1420），后端不对外暴露
 FRONTEND_PORT=1420
 
 # ─── 邮件服务（可选，不填则禁用邮件功能）──────────────
-SMTP_HOST=smtp.example.com
+SMTP_HOST=smtp.163.com
 SMTP_PORT=465
-SMTP_USER=noreply@example.com
-SMTP_PASS=your_smtp_password
+SMTP_USER=z2130059@163.com
+SMTP_PASS=ZFgnVi9k4mWFF
 SMTP_FROM_NAME=KamiSM
-SMTP_FROM_EMAIL=noreply@example.com
+SMTP_FROM_EMAIL=z2130059@163.com
 
 # ─── 日志级别 ─────────────────────────────────────────
 # 可选: error, warn, info, debug, trace
