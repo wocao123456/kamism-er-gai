@@ -506,3 +506,19 @@ tbody tr:hover { background: var(--bg-hover); }
   opacity: 0.45;
   animation: card-breathe 3s ease-in-out infinite;
 }
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--text-muted);
+  display: inline-block;
+}
+.status-dot.breathing {
+  background: var(--success);
+  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55);
+  animation: status-dot-breathe 1.6s ease-in-out infinite;
+}
+@keyframes status-dot-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55); opacity: 0.75; }
+  50% { box-shadow: 0 0 0 7px rgba(34, 197, 94, 0); opacity: 1; }
+}

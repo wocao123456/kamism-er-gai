@@ -22,3 +22,5 @@ Thumbs.db
 check_output.txt
 # 门户网站
 website/
+# 自动生成环境模板
+.evn

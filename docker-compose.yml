@@ -88,8 +88,12 @@ services:
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-KamiSM}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
       RUST_LOG: ${RUST_LOG:-info}
+      UPDATE_WORKDIR: /workspace
+      HOST_PROJECT_DIR: /root/kamism
     volumes:
       - uploads_data:/app/uploads
+      - /root/kamism:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
     expose:
       - "9527"
 

@@ -16,6 +16,7 @@ pub mod api_keys;
 pub mod api_ts;
 pub mod oauth;
 pub mod profile;
+pub mod system_update;
 
 use axum::{Router, middleware};
 use crate::middleware::auth::AppState;

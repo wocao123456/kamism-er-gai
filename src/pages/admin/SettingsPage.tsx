@@ -3,8 +3,6 @@ import toast from 'react-hot-toast';
 import { Upload, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth';
 
-const CURRENT_VERSION = (window as any).__APP_VERSION__ || '1.3.0';
-
 const OAUTH_TYPES = [
   { value: 'qq', label: 'QQ', icon: '🐧' },
   { value: 'wx', label: '微信', icon: '💬' },
@@ -29,10 +27,9 @@ export default function SettingsPage() {
   const { role, updateUser } = useAuthStore();
   const isAdmin = role === 'admin';
   const [bgUrl, setBgUrl] = useState('');
-  const [hasUpdate, setHasUpdate] = useState(false);
-  const [localVersion, setLocalVersion] = useState(CURRENT_VERSION);
-  const [latestVersion, setLatestVersion] = useState('');
+  const [updateInfo, setUpdateInfo] = useState<any>(null);
   const [checking, setChecking] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [oauthEnabled, setOauthEnabled] = useState(false);
@@ -69,45 +66,48 @@ export default function SettingsPage() {
         } catch {}
       })();
     }
-    (async () => {
-      try {
-        const res = await fetch('/api/profile/version');
-        if (res.ok) {
-          const json = await res.json();
-          if (json.success && json.data?.version) setLocalVersion(json.data.version);
-        }
-      } catch {}
-      setTimeout(() => checkForUpdates(), 1200);
-    })();
+    if (isAdmin) setTimeout(() => checkForUpdates(), 800);
   }, []);
 
   const checkForUpdates = async () => {
+    if (!isAdmin) return;
     setChecking(true);
     try {
-      const res = await fetch('https://raw.githubusercontent.com/wocao123456/kamism-er-gai/main/CHANGELOG.md');
-      if (res.ok) {
-        const text = await res.text();
-        const versionRegex = /## \[(?:未发布|v?(\d+\.\d+\.\d+)|最新)\][^\n]*/g;
-        const versions: { raw: string; version: string; label: string }[] = [];
-        let m: RegExpExecArray | null;
-        while ((m = versionRegex.exec(text)) !== null) {
-          const raw = m[0];
-          const ver = m[1] || 'unreleased';
-          let label = ver;
-          if (raw.includes('未发布')) label = '未发布 (开发版)';
-          else if (raw.includes('最新') && !ver) label = '最新稳定版';
-          versions.push({ raw, version: ver, label });
-        }
-        const latest = versions[0];
-        if (latest) {
-          setLatestVersion(latest.version === 'unreleased' ? '开发版' : latest.version);
-          setHasUpdate(latest.version !== localVersion);
-        }
-      }
-    } catch (e) {
-      console.error('检查更新失败', e);
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/system-update/status', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.success) setUpdateInfo(json.data);
+      else if (res.status !== 403) toast.error(json.message || '检查更新失败');
+    } catch {
+      if (isAdmin) toast.error('检查更新失败');
     } finally {
       setChecking(false);
+    }
+  };
+
+  const handleSystemUpdate = async () => {
+    if (!confirm('确认拉取 GitHub 最新版本并重构前后端？更新过程中服务会短暂重启。')) return;
+    setUpdating(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/system-update/apply', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.success) {
+        toast.success(json.message || '系统更新已开始');
+        setUpdateInfo((prev: any) => ({ ...(prev || {}), running: true, log: '正在启动更新任务...' }));
+        setTimeout(checkForUpdates, 3000);
+      } else {
+        toast.error(json.message || '启动更新失败');
+      }
+    } catch {
+      toast.error('启动更新失败');
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -218,8 +218,9 @@ export default function SettingsPage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>三方OAuth自定义</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              {enabledTypes.length > 0 ? '已启用' : '未启用'}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+              <span className={oauthEnabled && enabledTypes.length > 0 ? 'status-dot breathing' : 'status-dot'} />
+              {oauthEnabled && enabledTypes.length > 0 ? '已启用' : '未启用'}
             </span>
           </div>
         </div>
@@ -348,26 +349,31 @@ export default function SettingsPage() {
       </div>
       )}
 
-      {/* 版本检查 */}
+      {/* 系统更新 */}
+      {isAdmin && (
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>版本检查</div>
-          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={checkForUpdates} disabled={checking}>
-            {checking ? '检查中...' : '重新检查'}
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>系统更新</div>
+          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={checkForUpdates} disabled={checking || updating}>
+            {checking ? '检测中...' : '重新检测'}
           </button>
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.6 }}>
-          <div>当前版本：{localVersion}</div>
-          <div>最新版本：{latestVersion || '未知'}</div>
-          <div>
-            {hasUpdate ? (
-              <span style={{ color: 'var(--warning)' }}>发现新版本</span>
-            ) : (
-              <span style={{ color: 'var(--success)' }}>已是最新版本</span>
-            )}
-          </div>
+        <div style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.7 }}>
+          <div>当前版本：{updateInfo?.current_version || updateInfo?.current || '未知'} {updateInfo?.current_message ? `· ${updateInfo.current_message}` : ''}</div>
+          <div>最新版本：{updateInfo?.latest_version || updateInfo?.latest || '未知'} {updateInfo?.latest_message ? `· ${updateInfo.latest_message}` : ''}</div>
+          <div>状态：{updateInfo?.running ? <span style={{ color: 'var(--warning)' }}>更新中</span> : updateInfo?.has_update ? <span style={{ color: 'var(--warning)' }}>发现新版本</span> : <span style={{ color: 'var(--success)' }}>已是最新版本</span>}</div>
         </div>
+        {updateInfo?.running && updateInfo?.log && (
+          <pre style={{ marginTop: 12, padding: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-dim)', fontSize: 12, whiteSpace: 'pre-wrap', maxHeight: 220, overflow: 'auto' }}>{updateInfo.log}</pre>
+        )}
+        {!updateInfo?.running && updateInfo?.changelog && (
+          <pre style={{ marginTop: 12, padding: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-dim)', fontSize: 12, whiteSpace: 'pre-wrap', maxHeight: 260, overflow: 'auto' }}>{updateInfo.changelog}</pre>
+        )}
+        <button className="btn btn-primary" style={{ marginTop: 12, width: '100%', justifyContent: 'center' }} onClick={handleSystemUpdate} disabled={updating || updateInfo?.running}>
+          {updating || updateInfo?.running ? '更新中...' : '确认更新并重构前后端'}
+        </button>
       </div>
+      )}
     </div>
   );
 }

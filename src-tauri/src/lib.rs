@@ -189,6 +189,7 @@ pub async fn start_server() -> anyhow::Result<()> {
         .merge(routes::agent::agent_router(state.clone()))
         .merge(routes::oauth::oauth_router(state.clone()))
         .merge(routes::profile::profile_router(state.clone()))
+        .merge(routes::system_update::system_update_router(state.clone()))
         .nest("/api/keys", routes::api_keys::api_keys_router(state.clone()))
         .nest("/api/ts", routes::api_ts::api_ts_router(state.clone()))
         .layer(axum_middleware::from_fn_with_state(state.clone(), op_log_middleware))

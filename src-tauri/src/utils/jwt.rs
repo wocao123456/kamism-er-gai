@@ -23,10 +23,10 @@ pub struct RefreshClaims {
     pub iat: i64,
 }
 
-/// 生成 Access Token（2小时有效期）
+/// 生成 Access Token（7天有效期）
 pub fn generate_token(user_id: &Uuid, role: &str, email: &str, secret: &str) -> Result<String> {
     let now = Utc::now();
-    let exp = now + Duration::hours(2);
+    let exp = now + Duration::days(7);
     let claims = Claims {
         sub: user_id.to_string(),
         role: role.to_string(),
@@ -42,10 +42,10 @@ pub fn generate_token(user_id: &Uuid, role: &str, email: &str, secret: &str) -> 
     Ok(token)
 }
 
-/// 生成 Refresh Token（7天有效期，使用独立密钥前缀区分）
+/// 生成 Refresh Token（15天有效期，使用独立密钥前缀区分）
 pub fn generate_refresh_token(user_id: &Uuid, role: &str, email: &str, secret: &str) -> Result<String> {
     let now = Utc::now();
-    let exp = now + Duration::days(7);
+    let exp = now + Duration::days(15);
     let refresh_secret = format!("{}:refresh", secret);
     let claims = RefreshClaims {
         sub: user_id.to_string(),

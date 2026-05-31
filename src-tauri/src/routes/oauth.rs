@@ -333,6 +333,13 @@ async fn fetch_oauth_user(state: &AppState, oauth_type: &str, code: &str) -> Res
     Ok((open_id, username, avatar, email))
 }
 
+
+fn oauth_email_or_fallback(provider: &str, open_id: &str, oauth_email: Option<&str>) -> String {
+    if let Some(email) = oauth_email.filter(|e| e.contains('@')) { return email.to_lowercase(); }
+    if provider == "qq" && open_id.chars().all(|c| c.is_ascii_digit()) { return format!("{}@qq.com", open_id); }
+    format!("{}@oauth.local", open_id)
+}
+
 async fn issue_or_create_oauth_login(
     state: &AppState,
     provider: &str,
@@ -353,10 +360,7 @@ async fn issue_or_create_oauth_login(
     if let Some((id, username, stored_avatar, plan)) = existing {
         let uid_uuid = Uuid::parse_str(&id).map_err(|_| "用户ID无效".to_string())?;
         let final_avatar = if avatar_url.trim().is_empty() { stored_avatar.unwrap_or_default() } else { avatar_url.to_string() };
-        let email_for_jwt = oauth_email
-            .filter(|e| e.contains('@'))
-            .map(|e| e.to_lowercase())
-            .unwrap_or_else(|| format!("{}@oauth.local", open_id));
+        let email_for_jwt = oauth_email_or_fallback(provider, open_id, oauth_email);
         if !avatar_url.trim().is_empty() || !email_for_jwt.ends_with("@oauth.local") {
             if let Ok(uid) = Uuid::parse_str(&id) {
                 if let Ok(encrypted_email) = EncryptedFieldsOps::encrypt_merchant_email(&state.pool, &state.encryptor, uid, &email_for_jwt).await {
@@ -400,7 +404,7 @@ async fn issue_or_create_oauth_login(
         .collect::<String>());
     let api_key_hash = EncryptedFieldsOps::generate_hash(&raw_api_key);
     let password_hash = bcrypt::hash(Uuid::new_v4().to_string(), bcrypt::DEFAULT_COST).map_err(|e| e.to_string())?;
-    let email = oauth_email.filter(|e| e.contains('@')).map(|e| e.to_lowercase()).unwrap_or_else(|| format!("{}@oauth.local", open_id));
+    let email = oauth_email_or_fallback(provider, open_id, oauth_email);
     let email_hash = EncryptedFieldsOps::generate_hash(&email);
     let encrypted_api_key = EncryptedFieldsOps::encrypt_merchant_api_key(&state.pool, &state.encryptor, mid, &raw_api_key).await.map_err(|_| "API Key加密失败".to_string())?;
     let encrypted_email = EncryptedFieldsOps::encrypt_merchant_email(&state.pool, &state.encryptor, mid, &email).await.map_err(|_| "邮箱加密失败".to_string())?;
@@ -460,14 +464,14 @@ async fn oauth_callback(
         Ok(payload) => {
             let ticket = Uuid::new_v4().to_string();
             let mut c = state.redis.clone();
-            let _: () = c.set_ex(format!("oauth:result:{}", ticket), payload.to_string(), 300).await.unwrap_or(());
+            let _: () = c.set_ex(format!("oauth:result:{}", ticket), payload.to_string(), 86400).await.unwrap_or(());
             Redirect::to(&format!("/oauth/callback?ticket={}", ticket)).into_response()
         }
         Err(e) => {
             let ticket = Uuid::new_v4().to_string();
             let mut c = state.redis.clone();
             let payload = json!({"success": false, "message": e});
-            let _: () = c.set_ex(format!("oauth:result:{}", ticket), payload.to_string(), 300).await.unwrap_or(());
+            let _: () = c.set_ex(format!("oauth:result:{}", ticket), payload.to_string(), 86400).await.unwrap_or(());
             Redirect::to(&format!("/oauth/callback?ticket={}", ticket)).into_response()
         }
     }
@@ -480,7 +484,6 @@ async fn oauth_result(
     let mut c = state.redis.clone();
     let key = format!("oauth:result:{}", query.ticket);
     let cached: Option<String> = c.get(&key).await.unwrap_or(None);
-    let _: () = c.del(&key).await.unwrap_or(());
     match cached {
         Some(s) => match serde_json::from_str::<Value>(&s) {
             Ok(v) => Json(v).into_response(),

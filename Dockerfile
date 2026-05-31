@@ -35,6 +35,8 @@ COPY src-tauri/migrations src-tauri/migrations
 COPY src-tauri/build.rs src-tauri/build.rs
 COPY src-tauri/icons src-tauri/icons
 COPY server/src server/src
+COPY ensure_evn.sh ensure_evn.sh
+RUN chmod +x ensure_evn.sh && ./ensure_evn.sh || true
 
 # 删除占位编译缓存，强制重新编译
 RUN touch src-tauri/src/lib.rs server/src/main.rs
@@ -56,6 +58,8 @@ RUN echo "==> [6/6] 安装运行时依赖..." \
         python3-pip \
         ca-certificates \
         libssl3 \
+        git \
+        docker.io \
     && python3 -m pip install --break-system-packages pycryptodome \
     && rm -rf /var/lib/apt/lists/* \
     && echo "==> [6/6] 后端镜像构建完成，等待启动..."
@@ -63,7 +67,9 @@ RUN echo "==> [6/6] 安装运行时依赖..." \
 # 复制编译产物和数据库迁移文件
 COPY --from=builder /app/target/release/kamism-server /app/kamism-server
 COPY --from=builder /app/src-tauri/migrations /app/migrations
+COPY ensure_evn.sh /app/ensure_evn.sh
+RUN chmod +x /app/ensure_evn.sh
 
 EXPOSE 9527
 
-CMD ["/app/kamism-server"]
+CMD ["sh", "-lc", "/app/ensure_evn.sh || true; exec /app/kamism-server"]
