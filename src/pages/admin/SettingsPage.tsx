@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
-import { Upload, Trash2, RefreshCw } from 'lucide-react';
+import { Upload, Trash2 } from 'lucide-react';
 
-const CURRENT_VERSION = '0.1.0';
+const CURRENT_VERSION = (window as any).__APP_VERSION__ || '1.3.0';
 
-// 素颜聚合登录支持的类型
 const OAUTH_TYPES = [
   { value: 'qq', label: 'QQ', icon: '🐧' },
   { value: 'wx', label: '微信', icon: '💬' },
@@ -21,28 +20,29 @@ const OAUTH_TYPES = [
   { value: 'github', label: 'GitHub', icon: '🐱' },
 ];
 
+// 背景用 userId 隔离，OAuth 是全局统一的用 admin
+function bgKey() { return 'kamism_bg_url_' + (localStorage.getItem('role') || 'guest'); }
+function oauthBaseKey() { return 'kamism_oauth_config_admin'; }
+
+
 export default function SettingsPage() {
   const [bgUrl, setBgUrl] = useState('');
   const [hasUpdate, setHasUpdate] = useState(false);
+  const [localVersion, setLocalVersion] = useState(CURRENT_VERSION);
   const [latestVersion, setLatestVersion] = useState('');
-  const [latestLog, setLatestLog] = useState('');
   const [checking, setChecking] = useState(false);
-  const [showUpdateModal, setShowUpdateModal] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // 素颜聚合登录配置
   const [oauthEnabled, setOauthEnabled] = useState(false);
   const [appid, setAppid] = useState('');
   const [appkey, setAppkey] = useState('');
   const [redirectUri, setRedirectUri] = useState('');
   const [enabledTypes, setEnabledTypes] = useState<string[]>([]);
-  const [ghToken, setGhToken] = useState('');
-  const [changelog, setChangelog] = useState('');
 
   useEffect(() => {
-    const saved = localStorage.getItem('kamism_bg_url');
+    const saved = localStorage.getItem(bgKey());
     if (saved) setBgUrl(saved);
-    const oauthCfg = localStorage.getItem('kamism_oauth_config');
+    const oauthCfg = localStorage.getItem(oauthBaseKey());
     if (oauthCfg) {
       try {
         const cfg = JSON.parse(oauthCfg);
@@ -53,30 +53,17 @@ export default function SettingsPage() {
         setEnabledTypes(cfg.enabled_types || []);
       } catch {}
     }
-    const savedGh = localStorage.getItem('kamism_gh_token');
-    if (savedGh) setGhToken(savedGh);
+    (async () => {
+      try {
+        const res = await fetch('/api/profile/version');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data?.version) setLocalVersion(json.data.version);
+        }
+      } catch {}
+      setTimeout(() => checkForUpdates(), 1200);
+    })();
   }, []);
-
-  const saveOAuthConfig = () => {
-    if (!appid || !appkey) {
-      toast.error('请填写 AppID 和 AppKey');
-      return;
-    }
-    localStorage.setItem('kamism_oauth_config', JSON.stringify({
-      enabled: oauthEnabled,
-      appid,
-      appkey,
-      redirect_uri: redirectUri,
-      enabled_types: enabledTypes,
-    }));
-    toast.success('配置已保存');
-  };
-
-  const saveGhToken = () => {
-    if (!ghToken.trim()) { toast.error('请输入 GitHub Token'); return; }
-    localStorage.setItem('kamism_gh_token', ghToken.trim());
-    toast.success('Token 已保存，下次检查更新将自动使用');
-  };
 
   const checkForUpdates = async () => {
     setChecking(true);
@@ -84,15 +71,21 @@ export default function SettingsPage() {
       const res = await fetch('https://raw.githubusercontent.com/wocao123456/kamism-er-gai/main/CHANGELOG.md');
       if (res.ok) {
         const text = await res.text();
-        const match = text.match(/## \[(\d+\.\d+\.\d+)\]/);
-        if (match) {
-          const latest = match[1];
-          setLatestVersion(latest);
-          setHasUpdate(latest !== CURRENT_VERSION);
-          setLatestLog(text.substring(0, 2000));
-          if (latest !== CURRENT_VERSION) {
-            setShowUpdateModal(true);
-          }
+        const versionRegex = /## \[(?:未发布|v?(\d+\.\d+\.\d+)|最新)\][^\n]*/g;
+        const versions: { raw: string; version: string; label: string }[] = [];
+        let m: RegExpExecArray | null;
+        while ((m = versionRegex.exec(text)) !== null) {
+          const raw = m[0];
+          const ver = m[1] || 'unreleased';
+          let label = ver;
+          if (raw.includes('未发布')) label = '未发布 (开发版)';
+          else if (raw.includes('最新') && !ver) label = '最新稳定版';
+          versions.push({ raw, version: ver, label });
+        }
+        const latest = versions[0];
+        if (latest) {
+          setLatestVersion(latest.version === 'unreleased' ? '开发版' : latest.version);
+          setHasUpdate(latest.version !== localVersion);
         }
       }
     } catch (e) {
@@ -105,41 +98,60 @@ export default function SettingsPage() {
   const handleBgUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { toast.error('背景图不能超过10MB'); return; }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('背景图不能超过10MB');
+      return;
+    }
     const form = new FormData();
     form.append('background', file);
     try {
       const token = localStorage.getItem('token');
       const res = await fetch('/api/profile/upload-background', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: form
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
       });
       if (res.ok) {
         const json = await res.json();
-        if (json.success && json.data) {
-          setBgUrl(json.data.background_url);
-          localStorage.setItem('kamism_bg_url', json.data.background_url);
-          document.documentElement.style.setProperty('--custom-bg', `url(${json.data.background_url})`);
+        if (json.success && json.data?.background_url) {
+          const baseUrl = json.data.background_url;
+          const url = baseUrl + '?t=' + Date.now();
+          // 强制加时间戳，防止浏览器缓存同一文件名
+          setBgUrl(url);
+          localStorage.setItem(bgKey(), url);
+          document.documentElement.style.setProperty('--custom-bg', `url(${url})`);
           toast.success('背景已更新');
-        } else { toast.error(json.message || '上传失败'); }
-      } else { toast.error('上传失败'); }
-    } catch { toast.error('上传失败'); }
+        } else {
+          toast.error(json.message || '上传失败');
+        }
+      } else {
+        toast.error('上传失败');
+      }
+    } catch {
+      toast.error('上传失败');
+    }
   };
 
-  const handleRemoveBg = () => {
+  const handleRemoveBg = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/profile/remove-background', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.message || '移除失败');
+        return;
+      }
+    } catch {
+      toast.error('移除失败');
+      return;
+    }
     setBgUrl('');
-    localStorage.removeItem('kamism_bg_url');
+    localStorage.removeItem(bgKey());
     document.documentElement.style.removeProperty('--custom-bg');
     toast.success('背景已移除');
-  };
-
-  const doUpdate = async () => {
-    try {
-      toast('正在拉取最新代码...');
-      setShowUpdateModal(false);
-      toast.success('已记录更新请求，请手动在服务器执行 git pull && docker compose up --build');
-    } catch { toast.error('更新失败'); }
   };
 
   return (
@@ -149,13 +161,21 @@ export default function SettingsPage() {
       {/* 自定义背景 */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 12 }}>自定义背景</div>
-        <div style={{
-          width: '100%', height: 120, borderRadius: 8,
-          background: bgUrl ? `url(${bgUrl}) center/cover` : 'var(--bg)',
-          border: '1px dashed var(--border)', marginBottom: 12,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'var(--text-dim)', fontSize: 13,
-        }}>
+        <div
+          style={{
+            width: '100%',
+            height: 120,
+            borderRadius: 8,
+            background: bgUrl ? `url(${bgUrl}) center/cover` : 'var(--bg)',
+            border: '1px dashed var(--border)',
+            marginBottom: 12,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--text-dim)',
+            fontSize: 13,
+          }}
+        >
           {bgUrl ? '' : '暂无背景图'}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -170,7 +190,7 @@ export default function SettingsPage() {
         </div>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleBgUpload} />
         <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 8 }}>
-          背景图将保存到服务器磁盘，换系统迁移也能保留
+          背景图将保存到服务器磁盘，换系统也能保留
         </div>
       </div>
 
@@ -179,105 +199,130 @@ export default function SettingsPage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>三方OAuth自定义</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{enabledTypes.length > 0 ? '已启用' : '未启用'}</span>
-            <input type="checkbox" checked={enabledTypes.length > 0} onChange={e => {
-              if (e.target.checked) {
-                if (!oauthEnabled) setOauthEnabled(true);
-                if (enabledTypes.length === 0) setEnabledTypes(['github']);
-              } else {
-                setOauthEnabled(false);
-                setEnabledTypes([]);
-              }
-            }} style={{ width: 16, height: 16 }} />
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {enabledTypes.length > 0 ? '已启用' : '未启用'}
+            </span>
           </div>
         </div>
 
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>AppID</label>
-          <input className="input" value={appid} onChange={e => setAppid(e.target.value)} placeholder="OAuth AppID" />
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>AppKey</label>
-          <input className="input" value={appkey} onChange={e => setAppkey(e.target.value)} placeholder="OAuth AppKey" type="password" />
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>回调地址 (Redirect URI)</label>
-          <input className="input" value={redirectUri} onChange={e => setRedirectUri(e.target.value)} placeholder="https://your-domain.com/auth/oauth/callback" />
-        </div>
-
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 8 }}>已启用的登录方式（点击切换）</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {OAUTH_TYPES.map(type => {
-              const isActive = enabledTypes.includes(type.value);
-              return (
-                <button
-                  key={type.value}
-                  onClick={() => {
-                    if (isActive) {
-                      setEnabledTypes(prev => prev.filter(t => t !== type.value));
-                    } else {
-                      setEnabledTypes(prev => [...prev, type.value]);
-                    }
-                  }}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 4,
-                    padding: '6px 12px', borderRadius: 8, fontSize: 12,
-                    border: '1px solid', cursor: 'pointer',
-                    background: isActive ? 'var(--accent)' : 'transparent',
-                    color: isActive ? '#fff' : 'var(--text-dim)',
-                    borderColor: isActive ? 'var(--accent)' : 'var(--border)',
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  <span>{type.icon}</span>
-                  <span>{type.label}</span>
-                </button>
-              );
-            })}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input
+              type="checkbox"
+              checked={oauthEnabled}
+              onChange={(e) => setOauthEnabled(e.target.checked)}
+              style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
+            />
+            <span style={{ fontSize: 13, color: 'var(--text)' }}>启用第三方登录</span>
           </div>
-        </div>
 
-        <button className="btn btn-primary" style={{ marginTop: 8 }} onClick={saveOAuthConfig}>保存配置</button>
-      </div>
+          {oauthEnabled && (
+            <>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>AppID</div>
+                <input
+                  className="input"
+                  value={appid}
+                  onChange={(e) => setAppid(e.target.value)}
+                  placeholder="请输入 AppID"
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>AppKey</div>
+                <input
+                  className="input"
+                  value={appkey}
+                  onChange={(e) => setAppkey(e.target.value)}
+                  placeholder="请输入 AppKey"
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>跳转地址</div>
+                <input
+                  className="input"
+                  value={redirectUri}
+                  onChange={(e) => setRedirectUri(e.target.value)}
+                  placeholder="https://u.suyanw.cn"
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>启用类型</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {OAUTH_TYPES.map((t) => {
+                    const checked = enabledTypes.includes(t.value);
+                    return (
+                      <button
+                        key={t.value}
+                        onClick={() => {
+                          setEnabledTypes((prev) =>
+                            checked
+                              ? prev.filter((x) => x !== t.value)
+                              : [...prev, t.value],
+                          );
+                        }}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          border: '1px solid',
+                          borderColor: checked ? 'var(--accent)' : 'var(--border)',
+                          background: checked ? 'var(--accent-glow)' : 'transparent',
+                          color: checked ? 'var(--accent)' : 'var(--text-dim)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {t.icon} {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
 
-      {/* 检测更新 */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 12 }}>检测更新</div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontSize: 14, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              当前版本 v{CURRENT_VERSION}
-              <span style={{
-                display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-                background: hasUpdate ? 'var(--success)' : 'var(--text-dim)',
-              }} />
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>
-              {checking ? '检查中...' : hasUpdate ? `发现新版本 v${latestVersion}` : '已是最新版本'}
-            </div>
-          </div>
-          <button className="btn btn-ghost" onClick={checkForUpdates} disabled={checking}>
-            <RefreshCw size={14} /> {checking ? '检查中...' : '重新检查'}
+          <button className="btn btn-primary" onClick={() => {
+            if (!appid || !appkey) {
+              toast.error('请填写 AppID 和 AppKey');
+              return;
+            }
+            const cfg = {
+              enabled: oauthEnabled,
+              appid,
+              appkey,
+              redirect_uri: redirectUri,
+              enabled_types: enabledTypes,
+            };
+            localStorage.setItem(oauthBaseKey(), JSON.stringify(cfg));
+            localStorage.setItem('kamism_oauth_appid_admin', appid);
+            localStorage.setItem('kamism_oauth_appkey_admin', appkey);
+            localStorage.setItem('kamism_oauth_redirect_admin', redirectUri);
+            toast.success('配置已保存');
+          }}>
+            保存配置
           </button>
         </div>
       </div>
 
-      {/* 更新弹窗 */}
-      {showUpdateModal && (
-        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowUpdateModal(false); }}>
-          <div className="modal">
-            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>发现新版本 v{latestVersion}</h3>
-            <div style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 16, maxHeight: 200, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
-              {latestLog}
-            </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setShowUpdateModal(false)}>关闭</button>
-              <button className="btn btn-primary" onClick={doUpdate}>立即更新</button>
-            </div>
+      {/* 版本检查 */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>版本检查</div>
+          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={checkForUpdates} disabled={checking}>
+            {checking ? '检查中...' : '重新检查'}
+          </button>
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.6 }}>
+          <div>当前版本：{localVersion}</div>
+          <div>最新版本：{latestVersion || '未知'}</div>
+          <div>
+            {hasUpdate ? (
+              <span style={{ color: 'var(--warning)' }}>发现新版本</span>
+            ) : (
+              <span style={{ color: 'var(--success)' }}>已是最新版本</span>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

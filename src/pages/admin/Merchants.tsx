@@ -90,6 +90,9 @@ export default function Merchants() {
   useEffect(() => {
     loadPlanConfigs();
     load(page, pageSize, search, planFilter);
+    const sync = () => load(page, pageSize, search, planFilter);
+    window.addEventListener('merchant-sync', sync);
+    return () => window.removeEventListener('merchant-sync', sync);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, pageSize, search, planFilter]);
 

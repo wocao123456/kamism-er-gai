@@ -7,6 +7,7 @@ use axum::{
     Router,
 };
 use redis::AsyncCommands;
+use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
@@ -28,11 +29,57 @@ pub struct CompleteProfileRequest {
     pub password: String,
 }
 
+#[derive(Deserialize)]
+pub struct OAuthProxyRequest {
+    pub appid: String,
+    pub appkey: String,
+    pub redirect_uri: String,
+    #[serde(rename = "type")]
+    pub oauth_type: String,
+}
+
 pub fn oauth_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .route("/auth/oauth/login", post(oauth_login))
-        .route("/auth/oauth/complete-profile", post(complete_profile))
+        .route("/oauth/login", post(oauth_login))
+        .route("/oauth/complete-profile", post(complete_profile))
+        .route("/oauth/proxy", post(proxy_oauth_login))
         .with_state(state)
+}
+
+async fn proxy_oauth_login(
+    State(_state): State<AppState>,
+    Json(body): Json<OAuthProxyRequest>,
+) -> Response {
+    let params = [
+        ("act", "login"),
+        ("appid", body.appid.as_str()),
+        ("appkey", body.appkey.as_str()),
+        ("redirect_uri", body.redirect_uri.as_str()),
+        ("type", body.oauth_type.as_str()),
+    ];
+    match Client::new()
+        .post("https://u.suyanw.cn/connect.php")
+        .form(&params)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status();
+            let text = match resp.text().await {
+                Ok(t) => t,
+                Err(_) => return (StatusCode::BAD_GATEWAY, Json(json!({"success": false, "message": "读取响应失败"}))).into_response(),
+            };
+            match serde_json::from_str::<serde_json::Value>(&text) {
+                Ok(v) => (status, Json(v)).into_response(),
+                Err(_) => (status, Json(json!({"raw": text}))).into_response(),
+            }
+        }
+        Err(_) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"success": false, "message": "请检查网络"})),
+        )
+            .into_response(),
+    }
 }
 
 async fn oauth_login(
@@ -119,7 +166,7 @@ async fn complete_profile(
             };
             let provider = data["provider"].as_str().unwrap_or("unknown");
             let open_id = data["open_id"].as_str().unwrap_or("");
-            let oauth_username = data["username"].as_str().unwrap_or("").to_string();
+            let _oauth_username = data["username"].as_str().unwrap_or("").to_string();
 
             let _: () = c.del(&cache_key).await.unwrap_or(());
 

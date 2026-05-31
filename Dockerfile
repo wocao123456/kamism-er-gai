@@ -5,11 +5,11 @@ WORKDIR /app
 
 # [1/6] 安装系统依赖
 RUN echo "==> [1/6] 安装系统依赖 (pkg-config, libssl-dev)..." \
-    && apt-get update && apt-get install -y \
+    && apt-get update && apt-get install -y --no-install-recommends \
         pkg-config \
         libssl-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && echo "==> [1/6] 系统依赖安装完成"
+    && echo "==> [1/6] 系统依赖完成"
 
 # [2/6] 复制 Cargo 文件，准备依赖缓存
 RUN echo "==> [2/6] 复制 Cargo 配置文件..."
@@ -51,7 +51,7 @@ WORKDIR /app
 
 # [6/6] 安装运行时依赖（新增 python3-pip 和 pycryptodome）
 RUN echo "==> [6/6] 安装运行时依赖..." \
-    && apt-get update && apt-get install -y \
+    && apt-get update && apt-get install -y --no-install-recommends \
         python3 \
         python3-pip \
         ca-certificates \

@@ -69,6 +69,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const updated = { ...get().user, ...partial } as User;
     localStorage.setItem('user', JSON.stringify(updated));
     set({ user: updated });
+    // 触发侧栏同步事件
+    window.dispatchEvent(new Event('merchant-sync'));
   },
 
   refreshProfile: async () => {

@@ -68,7 +68,8 @@ export default function Register() {
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'radial-gradient(ellipse 80% 60% at 50% -20%, rgba(124,106,247,0.15), transparent)',
+      background: 'var(--custom-bg, radial-gradient(ellipse 80% 60% at 50% -20%, rgba(124,106,247,0.15), transparent))',
+      backgroundSize: 'cover', backgroundPosition: 'center',
     }}>
       <div style={{ width: '100%', maxWidth: 420, padding: '0 20px' }}>
         <div style={{ textAlign: 'center', marginBottom: 40 }}>

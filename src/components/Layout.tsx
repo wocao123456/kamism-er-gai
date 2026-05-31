@@ -41,12 +41,19 @@ const merchantNav: NavItem[] = [
 export default function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, role, logout } = useAuthStore();
+  const { user, role, logout, refreshProfile } = useAuthStore();
   const { theme, toggle: toggleTheme } = useThemeStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const [noticeQueue, setNoticeQueue] = useState<{id:string;title:string;content:string;created_at:string}[]>([]);
   const setLastEvent = useWsEventStore((s) => s.setLastEvent);
+
+  // 监听 merchant-sync 事件（Profile 页修改后触发），刷新侧栏用户信息
+  useEffect(() => {
+    const handler = () => refreshProfile();
+    window.addEventListener('merchant-sync', handler);
+    return () => window.removeEventListener('merchant-sync', handler);
+  }, [refreshProfile]);
 
   useEffect(() => {
     if (role !== 'merchant') return;
@@ -89,7 +96,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   };
 
   const navItems: NavItem[] = role === 'admin'
-    ? [...adminNav, { label: '── 商户功能 ──', path: '', icon: <span /> }, ...merchantNav.filter(n => !n.hideForAdmin)]
+    ? [...adminNav, { label: '��─ 商户功能 ──', path: '', icon: <span /> }, ...merchantNav.filter(n => !n.hideForAdmin)]
     : merchantNav;
 
   const handleLogout = () => {
@@ -158,7 +165,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           <div style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', background: 'var(--bg)', flexShrink: 0, border: '2px solid var(--border-light)' }}>
             {user?.avatar ? (
-              <img src={user.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img src={user.avatar.startsWith('/') ? user.avatar : '/uploads/avatars/' + user.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             ) : (
               <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', background: 'linear-gradient(135deg, var(--accent-dim), #6d28d9)' }}>
                 {user?.username?.[0]?.toUpperCase() ?? 'U'}

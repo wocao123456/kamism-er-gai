@@ -117,7 +117,7 @@ export default function MerchantDashboard() {
   const { theme } = useThemeStore();
   const [opLogs, setOpLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
-  const hiddenPaths = ['/profile/upload-background', '/profile/avatar', '/profile/api-key', '/profile/change-password', '/profile/change-email', '/profile/send-email-code', '/profile/verify-old-email'];
+  const hiddenPaths = ['/profile/upload-background', '/profile/avatar', '/profile/api-key', '/profile/change-password', '/profile/change-email', '/auth/send-code', '/profile/verify-old-email'];
 
   const axisColor = theme === 'dark' ? '#55556a' : '#8888a0';
   const gridColor = theme === 'dark' ? '#1e1e2e' : '#dddde8';

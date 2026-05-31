@@ -1,8 +1,17 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { readFileSync } from "fs";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+
+// 从 CHANGELOG.md 自动提取最新版本号
+let appVersion = '1.0.0';
+try {
+  const changelog = readFileSync('CHANGELOG.md', 'utf-8');
+  const m = changelog.match(/## \[(?:未发布|v?(\d+\.\d+\.\d+)|最新)\]/);
+  if (m) appVersion = m[1] || '1.3.0'; // 未发布版本号，与 SettingsPage CURRENT_VERSION 保持一致
+} catch {}
 
 // https://vite.dev/config/
 export default defineConfig(async () => {
@@ -21,6 +30,10 @@ export default defineConfig(async () => {
       sourcemap: false,
       // chunk 大小警告阈值提升到 800KB（recharts 等库体积较大）
       chunkSizeWarningLimit: 800,
+      // 构建时从 CHANGELOG 自动注入版本号
+      define: {
+        __APP_VERSION__: JSON.stringify(appVersion),
+      },
       rollupOptions: {
         output: {
           // 手动分 chunk：将图表库单独打包，不阻塞首屏加载

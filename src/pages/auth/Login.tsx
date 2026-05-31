@@ -33,7 +33,8 @@ export default function Login() {
   const [loggingIn, setLoggingIn] = useState<string | null>(null);
 
   useEffect(() => {
-    const cfg = localStorage.getItem('kamism_oauth_config');
+    // 读管理员配置的 OAuth 设置（key 带 role 后缀做数据隔离）
+    const cfg = localStorage.getItem('kamism_oauth_config_admin');
     if (cfg) {
       try {
         const parsed = JSON.parse(cfg);
@@ -66,28 +67,24 @@ export default function Login() {
   const handleOAuthLogin = async (type: string) => {
     setLoggingIn(type);
     try {
-      const cfg = JSON.parse(localStorage.getItem('kamism_oauth_config') || '{}');
-      const appid = cfg.appid;
-      const appkey = cfg.appkey;
-      const redirectUri = cfg.redirect_uri;
-      if (!appid || !appkey || !redirectUri) {
-        toast.error('请先在设置中配置素颜聚合登录信息');
-        return;
-      }
-      // 请求素颜聚合登录接口获取跳转地址
-      const url = new URL('https://u.suyanw.cn/connect.php');
-      url.searchParams.set('act', 'login');
-      url.searchParams.set('appid', appid);
-      url.searchParams.set('appkey', appkey);
-      url.searchParams.set('type', type);
-      url.searchParams.set('redirect_uri', redirectUri);
-      const res = await fetch(url.toString());
-      const json = await res.json();
-      if (json.code === 0 && json.url) {
-        // 跳转到素颜聚合登录地址
-        window.location.href = json.url;
+      const res = await fetch('/auth/oauth/proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appid: localStorage.getItem('kamism_oauth_appid_admin') || '',
+          appkey: localStorage.getItem('kamism_oauth_appkey_admin') || '',
+          redirect_uri: localStorage.getItem('kamism_oauth_redirect_admin') || '',
+          type,
+        }),
+      });
+      const text = await res.text();
+      let json;
+      try { json = JSON.parse(text); } catch { json = { raw: text }; }
+      const url = json?.url || json?.data?.url || (typeof json?.raw === 'string' && json.raw.match(/"url"\s*:\s*"([^"]+)"/)?.[1]);
+      if (url) {
+        window.location.href = url;
       } else {
-        toast.error(json.msg || '获取登录地址失败');
+        toast.error('获取登录地址失败');
       }
     } catch {
       toast.error('登录失败，请检查网络');
@@ -99,7 +96,8 @@ export default function Login() {
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'radial-gradient(ellipse 80% 60% at 50% -20%, rgba(124,106,247,0.15), transparent)',
+      background: 'var(--custom-bg, radial-gradient(ellipse 80% 60% at 50% -20%, rgba(124,106,247,0.15), transparent))',
+      backgroundSize: 'cover', backgroundPosition: 'center',
     }}>
       <div style={{ width: '100%', maxWidth: 400, padding: '0 20px' }}>
         {/* Logo */}

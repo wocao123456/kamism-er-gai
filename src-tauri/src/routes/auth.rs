@@ -126,7 +126,7 @@ async fn register(
         return Json(json!({"success": false, "message": "密码至少8位"}));
     }
     if body.password.len() > 128 {
-        return Json(json!({"success": false, "message": "密码长度超限"}));
+        return Json(json!({"success": false, "message": "密码长度���限"}));
     }
     if body.username.len() < 3 {
         return Json(json!({"success": false, "message": "用户名至少3位"}));
