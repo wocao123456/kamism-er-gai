@@ -147,8 +147,10 @@
 ### 第一步：克隆代码
 
 ```bash
-git clone https://github.com/wocao123456/kamism-er-gai.git
-cd kamism-er-gai
+cd /root
+rm -rf kamism
+git clone https://github.com/wocao123456/kamism-er-gai.git kamism
+cd kamism
 ```
 
 ### 第二步：配置环境变量
