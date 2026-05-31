@@ -19,9 +19,7 @@ const OAUTH_TYPES = [
   { value: 'github', label: 'GitHub', icon: '🐱' },
 ];
 
-// 背景用 userId 隔离，OAuth 是全局统一的用 admin
 function bgKey() { return 'kamism_bg_url_' + (localStorage.getItem('role') || 'guest'); }
-
 
 export default function SettingsPage() {
   const { role, updateUser } = useAuthStore();
@@ -31,6 +29,7 @@ export default function SettingsPage() {
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pollRef = useRef<number | null>(null);
 
   const [oauthEnabled, setOauthEnabled] = useState(false);
   const [appid, setAppid] = useState('');
@@ -40,6 +39,43 @@ export default function SettingsPage() {
   const [oauthLoginPath, setOauthLoginPath] = useState('/connect.php');
   const [oauthUserPath, setOauthUserPath] = useState('/api.php');
   const [enabledTypes, setEnabledTypes] = useState<string[]>([]);
+
+  const stopPolling = () => {
+    if (pollRef.current) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  const checkForUpdates = async (silent = false) => {
+    if (!isAdmin) return;
+    if (!silent) setChecking(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/system-update/status', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.success) {
+        setUpdateInfo(json.data);
+        if (json.data?.running) {
+          if (!pollRef.current) {
+            pollRef.current = window.setInterval(() => {
+              checkForUpdates(true);
+            }, 2000);
+          }
+        } else {
+          stopPolling();
+        }
+      } else if (!silent && res.status !== 403) {
+        toast.error(json.message || '检查更新失败');
+      }
+    } catch {
+      if (!silent && isAdmin) toast.error('检查更新失败');
+    } finally {
+      if (!silent) setChecking(false);
+    }
+  };
 
   useEffect(() => {
     const currentBg = useAuthStore.getState().user?.background_url;
@@ -65,31 +101,15 @@ export default function SettingsPage() {
           }
         } catch {}
       })();
+      setTimeout(() => checkForUpdates(), 800);
     }
-    if (isAdmin) setTimeout(() => checkForUpdates(), 800);
+    return () => stopPolling();
   }, []);
-
-  const checkForUpdates = async () => {
-    if (!isAdmin) return;
-    setChecking(true);
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/system-update/status', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json();
-      if (json.success) setUpdateInfo(json.data);
-      else if (res.status !== 403) toast.error(json.message || '检查更新失败');
-    } catch {
-      if (isAdmin) toast.error('检查更新失败');
-    } finally {
-      setChecking(false);
-    }
-  };
 
   const handleSystemUpdate = async () => {
     if (!confirm('确认拉取 GitHub 最新版本并重构前后端？更新过程中服务会短暂重启。')) return;
     setUpdating(true);
+    stopPolling();
     try {
       const token = localStorage.getItem('token');
       const res = await fetch('/api/system-update/apply', {
@@ -99,8 +119,11 @@ export default function SettingsPage() {
       const json = await res.json();
       if (json.success) {
         toast.success(json.message || '系统更新已开始');
-        setUpdateInfo((prev: any) => ({ ...(prev || {}), running: true, log: '正在启动更新任务...' }));
-        setTimeout(checkForUpdates, 3000);
+        setUpdateInfo((prev: any) => ({ ...(prev || {}), running: true, log: '正在获取实时构建日志...' }));
+        checkForUpdates(true);
+        pollRef.current = window.setInterval(() => {
+          checkForUpdates(true);
+        }, 2000);
       } else {
         toast.error(json.message || '启动更新失败');
       }
@@ -132,7 +155,6 @@ export default function SettingsPage() {
         if (json.success && json.data?.background_url) {
           const baseUrl = json.data.background_url;
           const url = baseUrl + '?t=' + Date.now();
-          // 强制加时间戳，防止浏览器缓存同一文件名
           setBgUrl(url);
           localStorage.setItem(bgKey(), url);
           document.documentElement.style.setProperty('--custom-bg', `url(${url})`);
@@ -176,7 +198,6 @@ export default function SettingsPage() {
     <div style={{ maxWidth: 520, margin: '0 auto' }}>
       <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 24 }}>设置</h2>
 
-      {/* 自定义背景 */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 12 }}>自定义背景</div>
         <div
@@ -212,7 +233,6 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* 三方OAuth自定义 */}
       {isAdmin && (
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -224,59 +244,19 @@ export default function SettingsPage() {
             </span>
           </div>
         </div>
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input
-              type="checkbox"
-              checked={oauthEnabled}
-              onChange={(e) => setOauthEnabled(e.target.checked)}
-              style={{ width: 16, height: 16, accentColor: 'var(--accent)' }}
-            />
+            <input type="checkbox" checked={oauthEnabled} onChange={(e) => setOauthEnabled(e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--accent)' }} />
             <span style={{ fontSize: 13, color: 'var(--text)' }}>启用第三方登录</span>
           </div>
-
           {oauthEnabled && (
             <>
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>OAuth服务地址</div>
-                <input className="input" value={oauthBaseUrl} onChange={(e) => setOauthBaseUrl(e.target.value)} placeholder="https://u.suyanw.cn" />
-              </div>
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>登录接口路径</div>
-                <input className="input" value={oauthLoginPath} onChange={(e) => setOauthLoginPath(e.target.value)} placeholder="/connect.php" />
-              </div>
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>用户信息接口路径</div>
-                <input className="input" value={oauthUserPath} onChange={(e) => setOauthUserPath(e.target.value)} placeholder="/api.php" />
-              </div>
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>AppID</div>
-                <input
-                  className="input"
-                  value={appid}
-                  onChange={(e) => setAppid(e.target.value)}
-                  placeholder="请输入 AppID"
-                />
-              </div>
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>AppKey</div>
-                <input
-                  className="input"
-                  value={appkey}
-                  onChange={(e) => setAppkey(e.target.value)}
-                  placeholder="请输入 AppKey"
-                />
-              </div>
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>跳转地址</div>
-                <input
-                  className="input"
-                  value={redirectUri}
-                  onChange={(e) => setRedirectUri(e.target.value)}
-                  placeholder="https://u.suyanw.cn"
-                />
-              </div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>OAuth服务地址</div><input className="input" value={oauthBaseUrl} onChange={(e) => setOauthBaseUrl(e.target.value)} placeholder="https://u.suyanw.cn" /></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>登录接口路径</div><input className="input" value={oauthLoginPath} onChange={(e) => setOauthLoginPath(e.target.value)} placeholder="/connect.php" /></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>用户信息接口路径</div><input className="input" value={oauthUserPath} onChange={(e) => setOauthUserPath(e.target.value)} placeholder="/api.php" /></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>AppID</div><input className="input" value={appid} onChange={(e) => setAppid(e.target.value)} placeholder="请输入 AppID" /></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>AppKey</div><input className="input" value={appkey} onChange={(e) => setAppkey(e.target.value)} placeholder="请输入 AppKey" /></div>
+              <div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>跳转地址</div><input className="input" value={redirectUri} onChange={(e) => setRedirectUri(e.target.value)} placeholder="https://u.suyanw.cn" /></div>
               <div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>启用类型</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -286,11 +266,7 @@ export default function SettingsPage() {
                       <button
                         key={t.value}
                         onClick={() => {
-                          setEnabledTypes((prev) =>
-                            checked
-                              ? prev.filter((x) => x !== t.value)
-                              : [...prev, t.value],
-                          );
+                          setEnabledTypes((prev) => checked ? prev.filter((x) => x !== t.value) : [...prev, t.value]);
                         }}
                         style={{
                           padding: '4px 10px',
@@ -311,7 +287,6 @@ export default function SettingsPage() {
               </div>
             </>
           )}
-
           <button className="btn btn-primary" onClick={async () => {
             if (oauthEnabled && (!appid || !appkey || !oauthBaseUrl)) {
               toast.error('请填写 OAuth 服务地址、AppID 和 AppKey');
@@ -349,12 +324,11 @@ export default function SettingsPage() {
       </div>
       )}
 
-      {/* 系统更新 */}
       {isAdmin && (
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>系统更新</div>
-          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={checkForUpdates} disabled={checking || updating}>
+          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => checkForUpdates()} disabled={checking || updating}>
             {checking ? '检测中...' : '重新检测'}
           </button>
         </div>
@@ -364,7 +338,7 @@ export default function SettingsPage() {
           <div>状态：{updateInfo?.running ? <span style={{ color: 'var(--warning)' }}>更新中</span> : updateInfo?.has_update ? <span style={{ color: 'var(--warning)' }}>发现新版本</span> : <span style={{ color: 'var(--success)' }}>已是最新版本</span>}</div>
         </div>
         {updateInfo?.running && updateInfo?.log && (
-          <pre style={{ marginTop: 12, padding: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-dim)', fontSize: 12, whiteSpace: 'pre-wrap', maxHeight: 220, overflow: 'auto' }}>{updateInfo.log}</pre>
+          <pre style={{ marginTop: 12, padding: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-dim)', fontSize: 12, whiteSpace: 'pre-wrap', maxHeight: 260, overflow: 'auto' }}>{updateInfo.log}</pre>
         )}
         {!updateInfo?.running && updateInfo?.changelog && (
           <pre style={{ marginTop: 12, padding: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-dim)', fontSize: 12, whiteSpace: 'pre-wrap', maxHeight: 260, overflow: 'auto' }}>{updateInfo.changelog}</pre>

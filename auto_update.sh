@@ -26,18 +26,51 @@ run_compose() {
   fi
 }
 
-echo "[$(date)] start" >> "$LOG"
+echo "[$(date)] ===== system update start =====" >> "$LOG"
 git remote set-url origin https://github.com/wocao123456/kamism-er-gai.git >/dev/null 2>&1 || true
+
+echo "[$(date)] [1/6] fetch remote..." >> "$LOG"
 git fetch origin main >> "$LOG" 2>&1
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
 echo "[$(date)] local=$LOCAL remote=$REMOTE" >> "$LOG"
+
 if [ "$LOCAL" != "$REMOTE" ]; then
-  echo "[$(date)] update found" >> "$LOG"
+  echo "[$(date)] [2/6] update found, reset to origin/main..." >> "$LOG"
   git reset --hard origin/main >> "$LOG" 2>&1
+
+  echo "[$(date)] [3/6] ensure .evn..." >> "$LOG"
+  ./ensure_evn.sh >> "$LOG" 2>&1 || true
+
+  echo "[$(date)] [4/6] rebuild app/web..." >> "$LOG"
   run_compose build app web >> "$LOG" 2>&1
+
+  echo "[$(date)] [5/6] restart app/web..." >> "$LOG"
   run_compose up -d app web >> "$LOG" 2>&1
+
+  VERSION_TEXT=$(awk '/^## \[/{print; exit}' CHANGELOG.md | tr -d '\r')
+  COMMIT_HASH=$(git rev-parse --short HEAD)
+  COMMIT_MSG=$(git log -1 --pretty=%s | tr -d '\r' | sed "s/'/''/g")
+  VERSION_SQL=$(printf "%s" "$VERSION_TEXT" | sed "s/'/''/g")
+
+  if [ -n "${DATABASE_URL:-}" ]; then
+    echo "[$(date)] [6/6] write installed version to database..." >> "$LOG"
+    psql "$DATABASE_URL" -c "
+      INSERT INTO system_versions (id, version_text, commit_hash, commit_message, updated_at)
+      VALUES (1, '$VERSION_SQL', '$COMMIT_HASH', '$COMMIT_MSG', NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        version_text = EXCLUDED.version_text,
+        commit_hash = EXCLUDED.commit_hash,
+        commit_message = EXCLUDED.commit_message,
+        updated_at = NOW();
+    " >> "$LOG" 2>&1
+  else
+    echo "[$(date)] DATABASE_URL not found, skip writing installed version" >> "$LOG"
+  fi
+
   echo "[$(date)] done" >> "$LOG"
 else
   echo "[$(date)] up-to-date" >> "$LOG"
 fi
+
+echo "[$(date)] ===== system update end =====" >> "$LOG"
